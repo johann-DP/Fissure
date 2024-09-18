@@ -486,7 +486,7 @@ def regression_comparison(df):
         showarrow=True,
         arrowhead=2,
         ax=-50,
-        ay=50,
+        ay=-50,
         font=dict(color="red", size=10),
     )
 
