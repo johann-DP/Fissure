@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import linregress, pearsonr, spearmanr
 from sklearn.linear_model import LinearRegression
+from scipy.optimize import curve_fit
 
 from analysis.models import model_fissures_with_explanatory_vars
 
@@ -11,31 +12,11 @@ from analysis.models import model_fissures_with_explanatory_vars
 def ajouter_troisieme_subplot(fig, df, df_old):
     """Ajoute un troisième subplot comparant Bureau_old et Bureau avec ajustement par régression linéaire."""
 
-    # Filtrer les données de df_old pour ne conserver que celles à partir de 2015
-    df_old_filtered = df_old[df_old["Date"] >= "2015-01-01"]
-
-    # Convertir les dates filtrées en format numérique pour la régression
-    df_old_dates_numeric = df_old_filtered["Date"].map(pd.Timestamp.toordinal)
-
-    # Réaliser la régression linéaire sur les données filtrées de df_old
-    slope, intercept, r_value, p_value, std_err = linregress(
-        df_old_dates_numeric,
-        df_old_filtered["Bureau_old"] / df_old_filtered["Bureau_old"].mean() * 100
-        - 100,
-    )
-
-    # Calculer la date minimale de df['Date'] en format numérique
-    min_date = df["Date"].min().toordinal()
-
-    # Calculer la valeur prédite y_pred pour la date minimale
-    y_pred = slope * min_date + intercept
-
-    # Tracer les données avec y ajusté par y_pred
+    # Tracer les données
     fig.add_trace(
         go.Scatter(
-            x=df_old_filtered["Date"],
-            y=df_old_filtered["Bureau_old"] / df_old_filtered["Bureau_old"].mean() * 100
-            - 100,
+            x=df_old["Date"],
+            y=(df_old["Bureau_old"] - df_old["Bureau_old"].mean()) / df_old["Bureau_old"].std(),
             mode="lines",
             name="Bureau Old",
             line=dict(color="gray"),
@@ -43,27 +24,22 @@ def ajouter_troisieme_subplot(fig, df, df_old):
         row=3,
         col=1,
     )
-    fig.add_trace(
-        go.Scatter(
-            x=df["Date"],
-            y=(
-                df["Bureau"] / df["Bureau"].mean() * 100
-                - 100
-                - (df["Bureau"] / df["Bureau"].mean() * 100 - 100).min()
-            )
-            * 1.12
-            + y_pred,
-            mode="lines",
-            name="Bureau",
-            line=dict(color="blue"),
-        ),
-        row=3,
-        col=1,
-    )
+
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=df["Date"],
+    #         y=df["Bureau"] * 1.12, # + y_log_pred,
+    #         mode="lines",
+    #         name="Bureau",
+    #         line=dict(color="blue"),
+    #     ),
+    #     row=3,
+    #     col=1,
+    # )
 
     # Mise à jour des axes
     fig.update_xaxes(title_text="Date", row=3, col=1, type="date")
-    fig.update_yaxes(title_text="Comparaison des écarts", row=3, col=1)
+    fig.update_yaxes(title_text="Historique (Z)", row=3, col=1)
 
     return fig
 
@@ -78,9 +54,10 @@ def dataviz_evolution(df, df_old):
     # Création de la figure avec 3 subplots
     fig = make_subplots(rows=3, cols=1, shared_xaxes=False)
 
-    # Premier graphique (inchangé)
-    bureau_norm = df["Bureau"] / df["Bureau"].mean() * 100 - 100
-    mur_exterieur_norm = df["Mur extérieur"] / df["Mur extérieur"].mean() * 100 - 100
+    # Premier graphique
+    bureau_norm =(df["Bureau"] - df["Bureau"].mean()) / df["Bureau"].std()
+    mur_exterieur_norm =(df["Mur extérieur"] - df["Mur extérieur"].mean()) / df["Mur extérieur"].std()
+
     fig.add_trace(
         go.Scatter(
             x=df["Date"],
@@ -92,6 +69,7 @@ def dataviz_evolution(df, df_old):
         row=1,
         col=1,
     )
+
     fig.add_trace(
         go.Scatter(
             x=df["Date"],
@@ -103,8 +81,10 @@ def dataviz_evolution(df, df_old):
         row=1,
         col=1,
     )
+
     corr_pearson = pearsonr(df["Bureau"], df["Mur extérieur"])
     corr_spearman = spearmanr(df["Bureau"], df["Mur extérieur"])
+
     fig.add_annotation(
         x=df["Date"][2],
         y=1.5,
@@ -114,9 +94,9 @@ def dataviz_evolution(df, df_old):
         row=1,
         col=1,
     )
-    fig.update_yaxes(title_text="Écart (en %)", row=1, col=1)
+    fig.update_yaxes(title_text="Écart (Z)", row=1, col=1)
 
-    # Deuxième graphique (inchangé)
+    # Deuxième graphique
     fig.add_trace(
         go.Scatter(
             x=df["Date"],
@@ -204,23 +184,35 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     df_old = df_fissures_old
     df_new = df_fissures
 
-    # Filtrer les données de la première phase après le 1er janvier 2015 pour la régression linéaire
-    df_old_filtered = df_old[df_old["Date"] >= "2015-01-01"]
+    # Modèle exponentiel de la première date au 13/04/2016
+    df_exp = df_old[df_old["Date"] <= "2016-04-13"]
+    X_exp = (df_exp["Date"] - df_exp["Date"].min()).dt.days.values.reshape(-1, 1)
+    y_exp = df_exp["Bureau_old"].values
+    model_exp = LinearRegression().fit(X_exp, np.log(y_exp))  # Régression sur les valeurs log
+    y_exp_pred = np.exp(model_exp.predict(X_exp))  # Appliquer l'exponentielle à la prédiction
 
-    # Régression linéaire sur les données filtrées de la première phase
-    X_old_filtered = (
-        df_old_filtered["Date"] - df_old_filtered["Date"].min()
-    ).dt.days.values.reshape(-1, 1)
-    y_old_filtered = df_old_filtered["Bureau_old"].values
-    model = LinearRegression().fit(X_old_filtered, y_old_filtered)
+    # Calcul du coefficient de corrélation pour le modèle exponentiel
+    correlation_exp = np.corrcoef(y_exp, y_exp_pred)[0, 1]
+    print(f"Coefficient de corrélation pour le modèle exponentiel: {correlation_exp:.4f}")
+
+    # Modèle logarithmique du 13/04/2016 à la dernière date des mesures 'old'
+    df_log = df_old[df_old["Date"] >= "2016-04-13"]
+    X_log = (df_log["Date"] - df_log["Date"].min()).dt.days.values.reshape(-1, 1)
+    y_log = df_log["Bureau_old"].values
+    model_log = LinearRegression().fit(X_log, np.exp(y_log))  # Régression sur les valeurs exp
+    y_log_pred = np.log(model_log.predict(X_log))
+
+    # Calcul du coefficient de corrélation pour le modèle logarithmique
+    correlation_log = np.corrcoef(y_log, np.exp(y_log_pred))[0, 1]
+    print(f"Coefficient de corrélation pour le modèle logarithmique: {correlation_log:.4f}")
 
     # Prédiction pour la première date de la seconde phase
     X_new_start = np.array(
-        [(df_new["Date"].iloc[0] - df_old_filtered["Date"].min()).days]
+        [(df_new["Date"].iloc[0] - df_log["Date"].min()).days]
     ).reshape(-1, 1)
-    predicted_start = (
-        model.predict(X_new_start)[0] - 0.103
-    )  # Offset dû à la fluctuation de la première mesure
+    predicted_start = np.log(
+        model_log.predict(X_new_start)[0]
+    ) - 0.103 # Offset dû à la fluctuation de la première mesure
 
     # Ajustement proportionnel
     scaling_factor = 1.12  # Estimation due au changement de hauteur de prise de mesures
@@ -245,7 +237,16 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
 
     # Diviser les données pour les tracer séparément
     df_combined_old = df_combined.loc[df_old["Date"].min() : df_old["Date"].max()]
+    df_combined_inter = df_combined.loc[df_old["Date"].max(): df_new["Date"].min()]
     df_combined_new = df_combined.loc[df_new["Date"].min() : df_new["Date"].max()]
+
+    # Prolongation logarithmique tendancielle
+    X_log_inter = (df_combined_inter.index - df_log["Date"].min()).days.values.reshape(-1, 1)
+    y_log_pred_inter = np.log(model_log.predict(X_log_inter))
+
+    # Prolongation logarithmique : écart à 'new'
+    X_log_new = (df_combined_new.index - df_log["Date"].min()).days.values.reshape(-1, 1)
+    y_log_pred_new = np.log(model_log.predict(X_log_new))
 
     # Calculer X et y combinés pour les deux phases
     X_old_combined = (df_combined_old.index - df_combined_old.index.min()).days.values
@@ -335,7 +336,6 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
             avg_value = np.mean(y_new_combined[start : end + 1])
             y_pred = np.full(end + 1 - start, avg_value)
             segments_new.append((df_combined_new.index[start : end + 1], y_pred))
-            # Ajouter les paliers au DataFrame
             paliers_new.append(
                 [df_combined_new.index[start], df_combined_new.index[end], avg_value]
             )
@@ -347,6 +347,25 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     df_paliers_new = pd.DataFrame(
         paliers_new, columns=["Début", "Fin", "Valeur moyenne"]
     )
+
+    # Modélisation exponentielle et logarithmique
+
+    # Ajouter les prédictions du modèle exponentiel à df_combined_old
+    df_combined_old['model_exp'] = np.nan
+    df_combined_old.loc[df_exp["Date"], 'model_exp'] = y_exp_pred
+
+    # Ajouter les prédictions du modèle logarithmique à df_combined_old
+    df_combined_old['model_log'] = np.nan
+    df_combined_old.loc[df_log["Date"], 'model_log'] = y_log_pred
+
+    # Ajouter les prédictions du modèle logarithmique à df_combined_old
+    # entre la dernière date 'old' et la première date 'new'
+    df_combined_inter['model_log_inter'] = np.nan
+    df_combined_inter.loc[df_combined_inter.index, 'model_log_inter'] = y_log_pred_inter
+
+    # Ajouter les prédictions du modèle logarithmique à df_combined_new
+    df_combined_new['model_log_drift'] = np.nan
+    df_combined_new.loc[df_combined_new.index, 'model_log_drift'] = y_log_pred_new
 
     return (
         df_combined_old,
@@ -363,13 +382,58 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
         paliers_new,
         df_paliers_old,
         df_paliers_new,
+        df_combined_inter
     )
 
 
 def plot_scatter_plotly(
-    df_combined_old, y_old_combined, df_combined_new, y_new_combined
+    df_combined_old, y_old_combined, df_combined_new, y_new_combined, df_combined_inter
 ):
     fig = go.Figure()
+
+    # Modèle exponentiel
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_old.index,
+            y=df_combined_old["model_exp"],
+            mode='lines',
+            line=dict(color='#EF553B'),
+            name='Modèle exponentiel',
+            opacity=0.8
+    ))
+
+    # Modèle logarithmique
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_old.index,
+            y=df_combined_old["model_log"],
+            mode='lines',
+            line=dict(color='#00CC96'),
+            name='Modèle logarithmique',
+            opacity=0.8
+    ))
+
+    # Modèle logarithmique tendanciel
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_inter.index,
+            y=df_combined_inter["model_log_inter"],
+            mode='lines',
+            line=dict(dash='dash', color='#00CC96'),
+            name='Prolongation logarithmique',
+            opacity=0.8
+        ))
+
+    # model_log_drift
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_new.index,
+            y=df_combined_new["model_log_drift"],
+            mode='lines',
+            line=dict(dash='dash', color='#EF553B'),
+            name='Dérive logarithmique',
+            opacity=1
+        ))
 
     # Scatter plot pour la période ancienne
     fig.add_trace(
@@ -379,6 +443,22 @@ def plot_scatter_plotly(
             mode="markers",
             marker=dict(color="gray", size=5),
             name="Période Ancienne",
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=[
+                df_combined_old.index[64],
+                df_combined_old.index[64]
+            ],
+            y=[
+                df_combined_old["model_exp"].max(),
+                df_combined_old["model_log"].min()
+            ],
+            mode="lines",
+            line=dict(color="darkblue", width=5, dash="solid"),
+            name="Installation IPN",
         )
     )
 
@@ -643,6 +723,7 @@ def dataviz_old_new(df_fissures, df_fissures_old):
         paliers_new,
         df_paliers_old,
         df_paliers_new,
+        df_combined_inter
     ) = preprocessing_old_new(df_fissures, df_fissures_old)
 
     # Appel à la fonction de modélisation avec les paliers
@@ -669,7 +750,7 @@ def dataviz_old_new(df_fissures, df_fissures_old):
 
     # Créer la figure initiale avec les scatter plots
     fig = plot_scatter_plotly(
-        df_combined_old, y_old_combined, df_combined_new, y_new_combined
+        df_combined_old, y_old_combined, df_combined_new, y_new_combined, df_combined_inter
     )
 
     # Ajouter les segments de paliers

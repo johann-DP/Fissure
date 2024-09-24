@@ -78,7 +78,7 @@ def return_df_paliers_combined():
     # Chargement et préparation des données
     chemin = "data/Fissures/"
     df_fissures, df_fissures_old = chargement_donnees(chemin)
-    (_, _, _, _, _, _, _, _, _, _, _, _, df_paliers_old, df_paliers_new) = (
+    (_, _, _, _, _, _, _, _, _, _, _, _, df_paliers_old, df_paliers_new, _) = (
         preprocessing_old_new(df_fissures, df_fissures_old)
     )
     df_paliers_combined = structure_dataviz(df_paliers_old, df_paliers_new)

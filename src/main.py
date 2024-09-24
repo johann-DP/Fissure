@@ -185,6 +185,7 @@ def generate_modeling_results(df_cleaned, df_fissures, df_fissures_old):
         paliers_new,
         df_paliers_old,
         df_paliers_new,
+        _
     ) = preprocessing_old_new(df_fissures, df_fissures_old)
 
     # Modélisation des fissures (structure)
