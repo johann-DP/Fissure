@@ -1,10 +1,16 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.stats import linregress, pearsonr, spearmanr
+import scipy.stats as stats
+import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 
 from analysis.models import model_fissures_with_explanatory_vars
 
@@ -24,18 +30,6 @@ def ajouter_troisieme_subplot(fig, df, df_old):
         row=3,
         col=1,
     )
-
-    # fig.add_trace(
-    #     go.Scatter(
-    #         x=df["Date"],
-    #         y=df["Bureau"] * 1.12, # + y_log_pred,
-    #         mode="lines",
-    #         name="Bureau",
-    #         line=dict(color="blue"),
-    #     ),
-    #     row=3,
-    #     col=1,
-    # )
 
     # Mise à jour des axes
     fig.update_xaxes(title_text="Date", row=3, col=1, type="date")
@@ -87,7 +81,7 @@ def dataviz_evolution(df, df_old):
 
     fig.add_annotation(
         x=df["Date"][2],
-        y=1.5,
+        y=0,
         text=f"Pearson: {corr_pearson[0]:.2f}<br>Spearman: {corr_spearman[0]:.2f}",
         showarrow=False,
         font=dict(size=16),
@@ -179,7 +173,50 @@ def convert_mm_to_um(height_mm):
     return int(round(height_mm * 1000))
 
 
+# Fonction d'analyse statistique des données (test de validité pour IC)
+def test_stat(X_log, y_log, y_log_pred):
+    # Calcul des résidus à partir de l'ensemble d'entraînement
+    residuals = y_log - y_log_pred  # Différence entre les vraies valeurs et les valeurs prédites
+    s = np.std(residuals, ddof=1)  # Écart-type des résidus
+    n = len(X_log)  # Taille de l'échantillon d'entraînement
+
+    print(f"Nombre d'observations dans l'ensemble d'entraînement (min=30) : {n}")
+
+    # Tracer l'histogramme des résidus
+    plt.hist(residuals, bins=20, edgecolor='black')
+    plt.title('Histogramme des résidus')
+    plt.xlabel('Résidus')
+    plt.ylabel('Fréquence')
+    plt.show()
+
+    # QQ-plot pour visualiser la normalité
+    stats.probplot(residuals, dist="norm", plot=plt)
+    plt.title('QQ-plot des résidus')
+    plt.show()
+
+    # Test de Shapiro-Wilk
+    shapiro_test = stats.shapiro(residuals)
+    print(f"Test de Shapiro-Wilk: Statistique = {shapiro_test.statistic}, p-value = {shapiro_test.pvalue}")
+
+    # Tracer les résidus en fonction des valeurs prédites (homoscédasticité)
+    plt.scatter(y_log_pred, residuals)
+    plt.axhline(y=0, color='r', linestyle='--')
+    plt.title('Résidus vs Valeurs prédites')
+    plt.xlabel('Valeurs prédites')
+    plt.ylabel('Résidus')
+    plt.show()
+
+    # Tracer l'ACF des résidus (indépendance des erreurs)
+    plot_acf(residuals)
+    plt.title('Fonction d\'autocorrélation des résidus')
+    plt.show()
+
+    return None
+
+
 def preprocessing_old_new(df_fissures, df_fissures_old):
+    print("\n\nFonction 'preprocessing_old_new'\n\n")
+
     # Lecture des données
     df_old = df_fissures_old
     df_new = df_fissures
@@ -212,12 +249,12 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     ).reshape(-1, 1)
     predicted_start = np.log(
         model_log.predict(X_new_start)[0]
-    ) - 0.103 # Offset dû à la fluctuation de la première mesure
+    ) - 0.103  # Offset dû à la fluctuation de la première mesure
 
     # Ajustement proportionnel
     scaling_factor = 1.12  # Estimation due au changement de hauteur de prise de mesures
     df_new["Bureau_new_adjusted"] = predicted_start + scaling_factor * (
-        df_new["Bureau"] - df_new["Bureau"].iloc[0]
+            df_new["Bureau"] - df_new["Bureau"].iloc[0]
     )
 
     # Concaténer les deux séries
@@ -230,29 +267,39 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
         ]
     )
 
-    # Vérifier et supprimer les doublons dans l'index
-    df_combined = (
-        df_combined.drop_duplicates(subset="Date").set_index("Date").sort_index()
-    )
+    # Configurer l'index sur la colonne 'Date'
+    df_combined = df_combined.set_index("Date").sort_index()
+
+    # Supprimer les doublons éventuels dans l'index (en gardant la première occurrence)
+    df_combined = df_combined[~df_combined.index.duplicated(keep='first')]
 
     # Diviser les données pour les tracer séparément
-    df_combined_old = df_combined.loc[df_old["Date"].min() : df_old["Date"].max()]
-    df_combined_inter = df_combined.loc[df_old["Date"].max(): df_new["Date"].min()]
-    df_combined_new = df_combined.loc[df_new["Date"].min() : df_new["Date"].max()]
+    df_combined_old = df_combined.loc[df_old["Date"].min():df_old["Date"].max()]
 
-    # Prolongation logarithmique tendancielle
-    X_log_inter = (df_combined_inter.index - df_log["Date"].min()).days.values.reshape(-1, 1)
-    y_log_pred_inter = np.log(model_log.predict(X_log_inter))
+    # Ici, on veut exclure la dernière date de df_combined_old de df_combined_inter
+    df_combined_inter = df_combined.loc[df_combined_old.index.max() + pd.Timedelta(days=1):df_new["Date"].min()]
 
-    # Prolongation logarithmique : écart à 'new'
-    X_log_new = (df_combined_new.index - df_log["Date"].min()).days.values.reshape(-1, 1)
-    y_log_pred_new = np.log(model_log.predict(X_log_new))
+    # Assurez-vous que df_combined_new commence après la dernière date de df_combined_old
+    df_combined_new = df_combined.loc[df_new["Date"].min():df_combined.index.max()]
+
+    # Nouveau dataframe réindexé 'internew'
+    # Générer une série de dates quotidiennes de start_date à end_date
+    date_range = pd.date_range(start=df_old["Date"].max(), end=df_new["Date"].max(), freq='D')
+
+    # Créer le DataFrame avec la colonne 'Date'
+    df_combined_internew = pd.DataFrame(date_range, columns=['Date']).set_index('Date')
+
+    # Prolongation logarithmique tendancielle sur 'inter'
+    X_log_internew = (df_combined_internew.index - df_log["Date"].min()).days.values.reshape(-1, 1)
+    y_log_pred_internew = np.log(model_log.predict(X_log_internew))
 
     # Calculer X et y combinés pour les deux phases
     X_old_combined = (df_combined_old.index - df_combined_old.index.min()).days.values
     y_old_combined = df_combined_old["Bureau"].values
     X_new_combined = (df_combined_new.index - df_combined_new.index.min()).days.values
     y_new_combined = df_combined_new["Bureau"].values
+
+    # Paliers et segments
 
     # Points de rupture pour la première phase avec 16 segments
     manual_breaks_old_dates = [
@@ -358,14 +405,239 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     df_combined_old['model_log'] = np.nan
     df_combined_old.loc[df_log["Date"], 'model_log'] = y_log_pred
 
-    # Ajouter les prédictions du modèle logarithmique à df_combined_old
-    # entre la dernière date 'old' et la première date 'new'
-    df_combined_inter['model_log_inter'] = np.nan
-    df_combined_inter.loc[df_combined_inter.index, 'model_log_inter'] = y_log_pred_inter
-
     # Ajouter les prédictions du modèle logarithmique à df_combined_new
-    df_combined_new['model_log_drift'] = np.nan
-    df_combined_new.loc[df_combined_new.index, 'model_log_drift'] = y_log_pred_new
+    df_combined_internew['model_log_internew'] = np.nan
+    df_combined_internew.loc[df_combined_internew.index, 'model_log_internew'] = y_log_pred_internew
+
+    # Intervalle de confiance (IC) sur les données d'entraînement de 'old'
+
+    # Eléments statistiques dans l'espace linéaire (exp)
+    n = len(y_log)
+    s = np.std(np.exp(y_log))
+    IC_Student = 2 * 1.96 * s / np.sqrt(n)
+
+    # Prédictions exponentielles du modèle logarithmique
+    y_exp_regression = model_log.predict(X_log)
+
+    # IC de Student dans l'espace réel
+    y_log_upper = np.log(y_exp_regression + IC_Student / 2)
+    y_log_lower = np.log(y_exp_regression - IC_Student / 2)
+
+    # Calcul des distances orthogonales avec les signes (positive au-dessus, négative en dessous)
+    distances_orthogonales = (np.exp(y_log) - y_exp_regression) / np.sqrt(1 + model_log.coef_[0] ** 2)
+
+    # Tri des distances en valeur absolue
+    sorted_indices = np.argsort(np.abs(distances_orthogonales))
+
+    # Détermination du nombre de points à garder : 95% de l'ensemble des points d'entraînement
+    num_points_to_keep = int(0.95 * len(distances_orthogonales))
+
+    # Identification des points à exclure : les 5% les plus éloignés
+    indices_to_keep = sorted_indices[:num_points_to_keep]
+
+    # Calcul des distances maximales positives et négatives parmi les points restants
+    distance_orthogonale_pos = np.max(distances_orthogonales[indices_to_keep])
+    distance_orthogonale_neg = np.min(distances_orthogonales[indices_to_keep])
+
+    # Construction des droites parallèles pour l'IC dans l'espace exponentiel
+    model_log_upper_exp = y_exp_regression + distance_orthogonale_pos * np.sqrt(1 + model_log.coef_[0] ** 2)
+    model_log_lower_exp = y_exp_regression + distance_orthogonale_neg * np.sqrt(1 + model_log.coef_[0] ** 2)
+
+    # Transformation de ces droites en courbes logarithmiques
+    model_log_upper = np.log(model_log_upper_exp)
+    model_log_lower = np.log(model_log_lower_exp)
+
+    # Ajouter les IC au DataFrame d'entraînement
+    df_combined_old.loc[df_log["Date"], "model_log_upper"] = model_log_upper
+    df_combined_old.loc[df_log["Date"], "model_log_lower"] = model_log_lower
+    df_combined_old.loc[df_log["Date"], "Student_log_upper"] = y_log_upper
+    df_combined_old.loc[df_log["Date"], "Student_log_lower"] = y_log_lower
+
+    # Intervalle de prédiction (IP)
+
+    X_internew = df_combined_internew.index
+
+    # Convertir la date de référence et X_internew en 'datetime64[D]'
+    date_ref = np.datetime64(df_log["Date"].min(), 'D')  # Début des données d'entraînement
+    X_internew_days = (pd.to_datetime(X_internew).to_numpy().astype('datetime64[D]') - date_ref).astype(int)
+
+    # Effectuer les prédictions avec model_log dans l'espace réel (log, non linéarisé)
+    pred_log = np.log(model_log.predict(X_internew_days.reshape(-1, 1)))
+
+    # Éléments statistiques
+    n = len(X_log)  # Taille de l'échantillon
+    y_pred = np.log(model_log.predict(X_log))  # Prédictions du modèle sur les données d'entraînement (espace réel)
+    # Calcul de la variance de l'erreur résiduelle
+    var_res_log = np.sum((y_pred - y_log) ** 2) / (n - 2)
+    # Calcul de la variance de la prédiction
+    X_log_days = (X_log.astype('datetime64[D]') - date_ref).astype(int)
+    x_mean = np.mean(X_log_days)
+    var_pred = var_res_log * (1 + 1 / n + ((X_internew_days - x_mean) ** 2) / np.sum((X_log_days - x_mean) ** 2))
+
+    # Intervalle de prédiction dans l'espace réel
+    pred_log_upper = pred_log + 1.96 * np.sqrt(var_res_log + var_pred)
+    pred_log_lower = pred_log - 1.96 * np.sqrt(var_res_log + var_pred)
+
+    # Raccordement IC et IP - Correction avec ré-échantillonnage
+
+    # Passer dans l'espace linéaire pour tout traiter d'un seul tenant
+    pred_lin = np.exp(pred_log)
+    pred_lin_upper = np.exp(pred_log_upper)
+    pred_lin_lower = np.exp(pred_log_lower)
+
+    # Récupération des offsets à la fin de l'IC (Intervalle de Confiance) dans l'espace linéaire
+    final_IC_upper_lin = np.exp(df_combined_old["model_log_upper"].iloc[-1])
+    final_IC_lower_lin = np.exp(df_combined_old["model_log_lower"].iloc[-1])
+    final_prediction_lin = np.exp(df_combined_old["model_log"].iloc[-1])
+
+    upper_offset_start = final_IC_upper_lin - final_prediction_lin
+    lower_offset_start = final_prediction_lin - final_IC_lower_lin
+
+    # Récupération des offsets à la fin de l'IP non corrigé dans l'espace linéaire
+    final_pred_upper_lin = pred_lin_upper[-1]
+    final_pred_lower_lin = pred_lin_lower[-1]
+    final_pred_lin = pred_lin[-1]
+
+    upper_offset_end = final_pred_upper_lin - final_pred_lin
+    lower_offset_end = final_pred_lin - final_pred_lower_lin
+
+    # Ajustement progressif sur l'ensemble de l'IP traité comme un tout
+    adjusted_upper = np.zeros_like(pred_lin)
+    adjusted_lower = np.zeros_like(pred_lin)
+
+    def find_optimal_k(df_combined_new, pred_lin, upper_offset_start, upper_offset_end,
+                       lower_offset_start, lower_offset_end, X_internew, tol=0.01):
+        # Définir les bornes inférieure et supérieure de la recherche de k
+        k_min = 0.1 / len(X_internew)
+        k_max = 5 / len(X_internew)
+
+        def compute_coverage(k):
+            # Initialiser les vecteurs ajustés
+            adjusted_upper = np.zeros(len(X_internew))
+            adjusted_lower = np.zeros(len(X_internew))
+
+            # Calcul des offsets ajustés
+            for i in range(len(X_internew)):
+                factor = (np.exp(k * i) - 1) / (np.exp(k * len(X_internew)) - 1)
+                interpolated_upper_offset = (1 - factor) * upper_offset_start + factor * upper_offset_end
+                interpolated_lower_offset = (1 - factor) * lower_offset_start + factor * lower_offset_end
+                adjusted_upper[i] = pred_lin[i] + interpolated_upper_offset
+                adjusted_lower[i] = pred_lin[i] - interpolated_lower_offset
+
+            # Mettre à jour les colonnes dans df_combined_new pour vérifier la couverture
+            df_combined_new['pred_log_upper'] = np.log(adjusted_upper)
+            df_combined_new['pred_log_lower'] = np.log(adjusted_lower)
+
+            # Calculer le taux de couverture
+            return IPnew_ratio(df_combined_new)
+
+        # Recherche par dichotomie pour trouver la meilleure valeur de k
+        while k_max - k_min > tol:
+            k_mid = (k_min + k_max) / 2
+            coverage = compute_coverage(k_mid)
+
+            print(f"Essai avec k={k_mid:.6f}, taux de couverture={coverage * 100:.2f}%")
+
+            if coverage > 0.95:
+                k_max = k_mid  # Réduire k car la couverture est trop élevée
+            else:
+                k_min = k_mid  # Augmenter k car la couverture est trop faible
+
+        optimal_k = (k_min + k_max) / 2
+        print(f"Valeur optimale de k trouvée : {optimal_k:.6f}")
+        return optimal_k
+
+    # Trouver la valeur optimale de k
+    optimal_k = find_optimal_k(df_combined_new, pred_lin, upper_offset_start, upper_offset_end,
+                               lower_offset_start, lower_offset_end, X_internew)
+
+    # Utiliser la valeur optimale de k trouvée pour le calcul final
+    k = optimal_k
+
+    # Application de l'ajustement exponentiel avec k optimal
+    for i in range(len(X_internew)):
+        factor = (np.exp(k * i) - 1) / (np.exp(k * len(X_internew)) - 1)
+        interpolated_upper_offset = (1 - factor) * upper_offset_start + factor * upper_offset_end
+        interpolated_lower_offset = (1 - factor) * lower_offset_start + factor * lower_offset_end
+        adjusted_upper[i] = pred_lin[i] + interpolated_upper_offset
+        adjusted_lower[i] = pred_lin[i] - interpolated_lower_offset
+
+    # Transformation logarithmique finale après l'ajustement sur l'ensemble de l'IP ré-échantillonné
+    pred_log_upper = np.log(adjusted_upper)
+    pred_log_lower = np.log(adjusted_lower)
+
+    # Insérer les valeurs de pred_log, pred_log_upper et pred_log_lower dans les DataFrames
+    df_combined_internew['pred_log'] = pred_log
+    df_combined_internew['pred_log_upper'] = pred_log_upper
+    df_combined_internew['pred_log_lower'] = pred_log_lower
+
+    # Répartition des données 'internew' dans 'inter' et 'new'
+
+    # 1. Créer une plage complète de dates couvrant la période de df_combined_inter et df_combined_new
+    date_range_inter = pd.date_range(start=df_combined_inter.index.min(), end=df_combined_inter.index.max(), freq='D')
+
+    # 2. Réindexer les DataFrames en utilisant ces plages de dates complètes
+    df_combined_inter = df_combined_inter.reindex(date_range_inter)
+
+    # 3. Conserver les valeurs préexistantes et combiner avec df_combined_internew
+    # Utiliser `combine_first` pour ne pas écraser les valeurs préexistantes dans df_combined_inter
+    df_combined_inter.update(df_combined_internew[['pred_log', 'pred_log_upper', 'pred_log_lower']])
+
+    # 4. Assurer que les valeurs des colonnes préexistantes ne sont pas affectées
+    # Remplir les valeurs NaN pour les dates qui n'étaient pas présentes initialement
+    df_combined_inter.update(df_combined_inter.reindex(df_combined_inter.index))
+
+    # Garder les dates pour lesquelles des valeurs existaient déjà intactes
+    df_combined_inter = df_combined_inter.sort_index()
+
+    # Si des doublons ou incohérences apparaissent dans les prédictions, remplacez les valeurs incorrectes par les valeurs d'origine
+    df_combined_inter.loc[df_combined_inter.index.difference(df_combined_internew.index), ['pred_log', 'pred_log_upper',
+                                                                                           'pred_log_lower']] = np.nan
+
+    # 1. Créer une plage complète de dates couvrant df_combined_new et df_combined_internew
+    full_date_range_new = pd.date_range(start=min(df_combined_new.index.min(), df_combined_internew.index.min()),
+                                        end=max(df_combined_new.index.max(), df_combined_internew.index.max()),
+                                        freq='D')
+
+    # 2. Réindexer df_combined_new sur cette plage complète sans perdre les valeurs existantes
+    df_combined_new = df_combined_new.reindex(full_date_range_new)
+
+    # 3. Ajouter explicitement les colonnes de prédiction si elles n'existent pas
+    for col in ['pred_log', 'pred_log_upper', 'pred_log_lower']:
+        if col not in df_combined_new.columns:
+            df_combined_new[col] = np.nan
+
+    # 4. Mettre à jour df_combined_new avec les valeurs de df_combined_internew
+    df_combined_new.update(df_combined_internew[['pred_log', 'pred_log_upper', 'pred_log_lower']])
+
+    # 5. Réintégrer la colonne 'Bureau' en utilisant les données originales pour respecter les dates
+    df_combined_new['Bureau'] = df_combined['Bureau'].reindex(df_combined_new.index)
+
+    # 6. Vérifier la présence des colonnes
+    print("Colonnes actuelles de df_combined_new:", df_combined_new.columns)
+
+    # 7. Supprimer les lignes qui sont en dehors de la plage de dates d'origine de df_combined_new
+    df_combined_new = df_combined_new.loc[df_combined.index.min():df_combined.index.max()]
+
+    # 8. Trier par index
+    df_combined_new = df_combined_new.sort_index()
+
+    def IPnew_ratio(df_combined_new):
+        # Exclure les lignes où les prédictions sont NaN
+        valid_points = df_combined_new[['Bureau', 'pred_log_lower', 'pred_log_upper']].dropna()
+
+        # Calculer si les valeurs sont à l'intérieur de l'intervalle
+        inside_interval_new = (valid_points['Bureau'] >= valid_points['pred_log_lower']) & (
+                valid_points['Bureau'] <= valid_points['pred_log_upper'])
+
+        # Calculer le taux de couverture
+        coverage_new = inside_interval_new.mean()
+        return coverage_new
+
+    # Validation empirique pour la période "new"
+    print(f"Taux de couverture empirique pour la période 'new': {IPnew_ratio(df_combined_new) * 100:.2f}%")
+
+    print("\n\nFin de la fonction 'preprocessing_old_new'\n\n")
 
     return (
         df_combined_old,
@@ -391,7 +663,55 @@ def plot_scatter_plotly(
 ):
     fig = go.Figure()
 
-    # Modèle exponentiel
+    # Ajouter les plages d'incertitude 95% effectifs pour la période "old"
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_old.index,
+            y=df_combined_old['model_log_upper'],
+            mode='lines',
+            name='Plage supérieure (old)',
+            line=dict(dash='dash', color='#00CC96'),
+            showlegend=False
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_old.index,
+            y=df_combined_old['model_log_lower'],
+            # fill='tonexty',
+            mode='lines',
+            name='Intervalle à 95 % effectifs',
+            line=dict(dash='dash', color='#00CC96'),
+            # fillcolor='rgba(0, 204, 150, 0.15)',
+            showlegend=True
+        )
+    )
+
+    # Ajouter les plages d'incertitude Student pour la période "old"
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_old.index,
+            y=df_combined_old['Student_log_upper'],
+            mode='lines',
+            name='Plage supérieure (old)',
+            line=dict(width=0),
+            showlegend=False
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_old.index,
+            y=df_combined_old['Student_log_lower'],
+            fill='tonexty',
+            mode='lines',
+            name='Intervalle de confiance de Student à 95 %',
+            line=dict(width=0),
+            fillcolor='rgba(255, 0, 0, 0.15)',
+            showlegend=True
+        )
+    )
+
+    # Modèle exponentiel (première partie 'old')
     fig.add_trace(
         go.Scatter(
             x=df_combined_old.index,
@@ -402,7 +722,7 @@ def plot_scatter_plotly(
             opacity=0.8
     ))
 
-    # Modèle logarithmique
+    # Modèle logarithmique (seconde partie 'old')
     fig.add_trace(
         go.Scatter(
             x=df_combined_old.index,
@@ -413,27 +733,78 @@ def plot_scatter_plotly(
             opacity=0.8
     ))
 
-    # Modèle logarithmique tendanciel
+    # Ajouter les plages d'incertitude pour la période "inter"
     fig.add_trace(
         go.Scatter(
             x=df_combined_inter.index,
-            y=df_combined_inter["model_log_inter"],
+            y=df_combined_inter['pred_log_upper'],
             mode='lines',
-            line=dict(dash='dash', color='#00CC96'),
-            name='Prolongation logarithmique',
-            opacity=0.8
-        ))
+            name='Plage supérieure (inter)',
+            line=dict(dash='dash', color='rgba(128, 128, 128, 0.3)'),
+            showlegend=False
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_inter.index,
+            y=df_combined_inter['pred_log_lower'],
+            fill='tonexty',
+            mode='lines',
+            name='Intervalle de prévisions à 95 % effectifs',
+            line=dict(dash='dash', color='rgba(128, 128, 128, 0.3)'),
+            fillcolor='rgba(128, 128, 128, 0.15)',
+            showlegend=True
+        )
+    )
 
-    # model_log_drift
+    # Ajouter les plages d'incertitude pour la période "new"
     fig.add_trace(
         go.Scatter(
             x=df_combined_new.index,
-            y=df_combined_new["model_log_drift"],
+            y=df_combined_new['pred_log_upper'],
+            mode='lines',
+            name='Plage supérieure (new)',
+            line=dict(dash='dash', color='rgba(128, 128, 128, 0.3)'),
+            showlegend=False
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_new.index,
+            y=df_combined_new['pred_log_lower'],
+            fill='tonexty',
+            mode='lines',
+            name='Plage inférieure (new)',
+            line=dict(dash='dash', color='rgba(128, 128, 128, 0.3)'),
+            fillcolor='rgba(128, 128, 128, 0.15)',
+            showlegend=False
+        )
+    )
+
+    # Modèle logarithmique tendanciel "inter"
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_inter.index,
+            y=df_combined_inter["pred_log"],
+            mode='lines',
+            line=dict(dash='dash', color='#EF553B'),
+            name='Prévisions logarithmiques',
+            showlegend=True
+        ))
+
+    # Modèle logarithmique tendanciel "new"
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_new.index,
+            y=df_combined_new["pred_log"],
             mode='lines',
             line=dict(dash='dash', color='#EF553B'),
             name='Dérive logarithmique',
-            opacity=1
+            showlegend=False
         ))
+
+    # Assurer que 'df_combined_new' commence après la dernière date de 'df_combined_old'
+    df_combined_new = df_combined_new[df_combined_new.index > df_combined_old.index.max()]
 
     # Scatter plot pour la période ancienne
     fig.add_trace(
@@ -446,6 +817,7 @@ def plot_scatter_plotly(
         )
     )
 
+    # Travaux IPN
     fig.add_trace(
         go.Scatter(
             x=[
@@ -454,7 +826,7 @@ def plot_scatter_plotly(
             ],
             y=[
                 df_combined_old["model_exp"].max(),
-                df_combined_old["model_log"].min()
+                df_combined_old["model_log_upper"].min()
             ],
             mode="lines",
             line=dict(color="darkblue", width=5, dash="solid"),
@@ -466,7 +838,7 @@ def plot_scatter_plotly(
     fig.add_trace(
         go.Scatter(
             x=df_combined_new.index,
-            y=y_new_combined,
+            y=df_combined_new['Bureau'],
             mode="markers",
             marker=dict(color="blue", size=5),
             name="Période Récente (Ajustée)",
