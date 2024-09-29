@@ -9,9 +9,12 @@ import scipy.stats as stats
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import train_test_split
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 from prophet import Prophet
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from catboost import CatBoostRegressor
 
 from analysis.models import model_fissures_with_explanatory_vars
 
@@ -50,8 +53,8 @@ def dataviz_evolution(df, df_old):
     fig = make_subplots(rows=3, cols=1, shared_xaxes=False)
 
     # Premier graphique
-    bureau_norm =(df["Bureau"] - df["Bureau"].mean()) / df["Bureau"].std()
-    mur_exterieur_norm =(df["Mur extérieur"] - df["Mur extérieur"].mean()) / df["Mur extérieur"].std()
+    bureau_norm = (df["Bureau"] - df["Bureau"].mean()) / df["Bureau"].std()
+    mur_exterieur_norm = (df["Mur extérieur"] - df["Mur extérieur"].mean()) / df["Mur extérieur"].std()
 
     fig.add_trace(
         go.Scatter(
@@ -162,8 +165,8 @@ def calculate_heights(df_paliers):
     heights = []
     for i in range(len(df_paliers) - 1):
         height = (
-            df_paliers.iloc[i + 1]["Valeur moyenne"]
-            - df_paliers.iloc[i]["Valeur moyenne"]
+                df_paliers.iloc[i + 1]["Valeur moyenne"]
+                - df_paliers.iloc[i]["Valeur moyenne"]
         )
         heights.append(height)
     return heights
@@ -239,6 +242,88 @@ def add_prophet_forecast(df_combined_old, df_combined_internew):
     df_combined_internew['prophet_pred'] = forecast['yhat']
     df_combined_internew['prophet_pred_upper'] = forecast['yhat_upper']
     df_combined_internew['prophet_pred_lower'] = forecast['yhat_lower']
+
+    return df_combined_internew
+
+
+def add_catboost_forecast(df_combined_old, df_combined_internew):
+    # Préparation des données d'entraînement CatBoost
+    df_catboost_train = df_combined_old.reset_index()[['Date', 'Bureau']].dropna()
+
+    # Ajouter les caractéristiques temporelles à df_catboost_train
+    df_catboost_train['Days'] = (df_catboost_train['Date'] - df_catboost_train['Date'].min()).dt.days
+    df_catboost_train['year'] = df_catboost_train['Date'].dt.year
+    df_catboost_train['month'] = df_catboost_train['Date'].dt.month
+    df_catboost_train['day_of_year'] = df_catboost_train['Date'].dt.dayofyear
+    df_catboost_train['day_of_week'] = df_catboost_train['Date'].dt.dayofweek
+    df_catboost_train['week_of_year'] = df_catboost_train['Date'].dt.isocalendar().week.astype(int)
+
+    # Ajouter des décalages (lags) uniquement à partir des données disponibles
+    for lag in [1, 7, 30]:
+        df_catboost_train[f'lag_{lag}'] = df_catboost_train['Bureau'].shift(lag)
+
+    # Supprimer les lignes avec des NaN causés par les décalages
+    df_catboost_train.dropna(inplace=True)
+
+    # Cible dans l'échelle logarithmique
+    y = np.log(df_catboost_train['Bureau'])
+
+    # Caractéristiques d'entraînement
+    features = ['Days', 'year', 'month', 'day_of_year', 'day_of_week', 'week_of_year', 'lag_1', 'lag_7', 'lag_30']
+
+    # Diviser en ensemble d'entraînement et de validation
+    X_train, X_val, y_train, y_val = train_test_split(df_catboost_train[features], y, test_size=0.2, random_state=42)
+
+    # Entraînement de CatBoost
+    model_catboost = CatBoostRegressor(
+        iterations=5000,  # Augmentation des itérations
+        learning_rate=0.005,  # Réduction du taux d'apprentissage
+        depth=10,
+        silent=True,
+        random_seed=42
+    )
+    model_catboost.fit(X_train, y_train, eval_set=(X_val, y_val), early_stopping_rounds=200, verbose=False)
+
+    # Ajout des caractéristiques à df_combined_internew
+    df_combined_internew['Days'] = (df_combined_internew.index - df_catboost_train['Date'].min()).days
+    df_combined_internew['year'] = df_combined_internew.index.year
+    df_combined_internew['month'] = df_combined_internew.index.month
+    df_combined_internew['day_of_year'] = df_combined_internew.index.dayofyear
+    df_combined_internew['day_of_week'] = df_combined_internew.index.dayofweek
+    df_combined_internew['week_of_year'] = df_combined_internew.index.isocalendar().week.astype(int)
+
+    # Remplir les lags à partir des valeurs récentes de l'entraînement
+    df_combined_internew['lag_1'] = df_combined_old['Bureau'].iloc[-1]
+    df_combined_internew['lag_7'] = df_combined_old['Bureau'].iloc[-7] if len(df_combined_old) >= 7 else df_combined_old['Bureau'].iloc[0]
+    df_combined_internew['lag_30'] = df_combined_old['Bureau'].iloc[-30] if len(df_combined_old) >= 30 else df_combined_old['Bureau'].iloc[0]
+
+    # Prédictions avec CatBoost
+    catboost_pred_log = model_catboost.predict(df_combined_internew[features])
+
+    # Convertir les prédictions dans l'échelle exponentielle
+    catboost_pred = np.exp(catboost_pred_log)
+
+    # **Ajustement progressif avec maintien du trend**
+    initial_value = df_combined_old['Bureau'].iloc[-1]
+    start_pred_value = catboost_pred[0]
+    adjustment_factor = initial_value / start_pred_value
+
+    # Appliquer un ajustement progressif sur les prédictions
+    adjusted_catboost_pred = catboost_pred * np.linspace(adjustment_factor, 1, len(catboost_pred))
+
+    # Calcul de l'intervalle de prédiction à 95%
+    residuals = np.exp(y_train) - np.exp(model_catboost.predict(X_train))
+    residual_std = residuals.std()
+    confidence_interval = 1.96 * residual_std
+
+    # Insérer les valeurs ajustées
+    df_combined_internew['catboost_pred'] = adjusted_catboost_pred
+    df_combined_internew['catboost_pred_lower'] = adjusted_catboost_pred - confidence_interval
+    df_combined_internew['catboost_pred_upper'] = adjusted_catboost_pred + confidence_interval
+
+    # Supprimer les colonnes temporaires
+    df_combined_internew.drop(columns=['Days', 'year', 'month', 'day_of_year', 'day_of_week', 'week_of_year',
+                                       'lag_1', 'lag_7', 'lag_30'], inplace=True)
 
     return df_combined_internew
 
@@ -368,7 +453,9 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
         "2024-02-01",
         "2024-06-01",
         "2024-07-05",
-        "2024-09-01",
+        "2024-08-18",
+        "2024-09-22",
+        "2024-09-29"
     ]
     manual_breaks_new = [
         df_combined_new.index.get_loc(
@@ -394,9 +481,9 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
         elif i % 2 == 0:
             pass  # déporté sur une fonction séparée
         else:  # Segments plats (pente nulle)
-            avg_value = np.mean(y_old_combined[start : end + 1])
+            avg_value = np.mean(y_old_combined[start: end + 1])
             y_pred = np.full(end + 1 - start, avg_value)
-            segments_old.append((df_combined_old.index[start : end + 1], y_pred))
+            segments_old.append((df_combined_old.index[start: end + 1], y_pred))
             paliers_old.append(
                 [df_combined_old.index[start], df_combined_old.index[end], avg_value]
             )
@@ -409,9 +496,9 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
         start = manual_breaks_new[i]
         end = manual_breaks_new[i + 1]
         if i % 2 == 0:  # Segments plats (pente nulle)
-            avg_value = np.mean(y_new_combined[start : end + 1])
+            avg_value = np.mean(y_new_combined[start: end + 1])
             y_pred = np.full(end + 1 - start, avg_value)
-            segments_new.append((df_combined_new.index[start : end + 1], y_pred))
+            segments_new.append((df_combined_new.index[start: end + 1], y_pred))
             paliers_new.append(
                 [df_combined_new.index[start], df_combined_new.index[end], avg_value]
             )
@@ -666,8 +753,11 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     # Validation empirique pour la période "new"
     print(f"Taux de couverture empirique pour la période 'new': {IPnew_ratio(df_combined_new) * 100:.2f}%")
 
+    # Prophet
+
     # Ajouter les prédictions Prophet à df_combined_internew
-    df_combined_internew = add_prophet_forecast(df_combined_old, df_combined_internew)
+    df_combined_internew = add_prophet_forecast(df_combined.loc[df_log["Date"].min():df_old["Date"].max()],
+                                                df_combined_internew)
 
     # Répartition des prédictions Prophet de 'df_combined_internew' dans 'df_combined_inter' et 'df_combined_new'
 
@@ -703,6 +793,18 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     print(
         f"Taux de couverture empirique pour Prophet sur la période 'new': {Prophet_IPnew_ratio(df_combined_new) * 100:.2f}%")
 
+    # # CatBoost
+    #
+    # # Appel à CatBoost
+    # df_combined_internew = add_catboost_forecast(df_combined.loc[df_log["Date"].min():df_old["Date"].max()],
+    #                                              df_combined_internew)
+    #
+    # # Fusionner les prédictions de CatBoost avec les DataFrames inter et new
+    # df_combined_inter[['catboost_pred', 'catboost_pred_lower', 'catboost_pred_upper']] = df_combined_internew[
+    #     ['catboost_pred', 'catboost_pred_lower', 'catboost_pred_upper']]
+    # df_combined_new[['catboost_pred', 'catboost_pred_lower', 'catboost_pred_upper']] = df_combined_internew[
+    #     ['catboost_pred', 'catboost_pred_lower', 'catboost_pred_upper']]
+
     print("\n\nFin de la fonction 'preprocessing_old_new'\n\n")
 
     return (
@@ -725,7 +827,7 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
 
 
 def plot_scatter_plotly(
-    df_combined_old, y_old_combined, df_combined_new, y_new_combined, df_combined_inter
+        df_combined_old, y_old_combined, df_combined_new, y_new_combined, df_combined_inter
 ):
     fig = go.Figure()
 
@@ -786,7 +888,7 @@ def plot_scatter_plotly(
             line=dict(color='#EF553B'),
             name='Modèle exponentiel',
             opacity=0.8
-    ))
+        ))
 
     # Modèle logarithmique (seconde partie 'old')
     fig.add_trace(
@@ -797,7 +899,7 @@ def plot_scatter_plotly(
             line=dict(color='#00CC96'),
             name='Modèle logarithmique',
             opacity=0.8
-    ))
+        ))
 
     # Ajouter les plages d'incertitude pour la période "inter"
     fig.add_trace(
@@ -918,7 +1020,7 @@ def plot_scatter_plotly(
             y=df_combined_inter['prophet_pred_upper'],
             mode='lines',
             name='Plage supérieure (Prophet inter)',
-            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),  # Couleur bleu semi-transparente
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.3)'),  # Couleur bleu semi-transparente
             showlegend=False
         )
     )
@@ -928,9 +1030,9 @@ def plot_scatter_plotly(
             y=df_combined_inter['prophet_pred_lower'],
             fill='tonexty',
             mode='lines',
-            name='Intervalle de prévision Prophet à 95 % (inter)',
-            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),
-            fillcolor='rgba(0, 102, 204, 0.15)',
+            name='Intervalle de prévision Prophet à 95 %',
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.3)'),
+            fillcolor='rgba(0, 102, 204, 0.05)',
             showlegend=True
         )
     )
@@ -940,7 +1042,7 @@ def plot_scatter_plotly(
             y=df_combined_inter['prophet_pred'],
             mode='lines',
             line=dict(dash='dash', color='#0066CC'),  # Couleur bleu foncé
-            name='Prévision Prophet (inter)',
+            name='Prévision Prophet',
             showlegend=True
         )
     )
@@ -952,7 +1054,7 @@ def plot_scatter_plotly(
             y=df_combined_new['prophet_pred_upper'],
             mode='lines',
             name='Plage supérieure (Prophet new)',
-            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),  # Couleur bleu semi-transparente
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.3)'),  # Couleur bleu semi-transparente
             showlegend=False
         )
     )
@@ -962,10 +1064,10 @@ def plot_scatter_plotly(
             y=df_combined_new['prophet_pred_lower'],
             fill='tonexty',
             mode='lines',
-            name='Intervalle de prévision Prophet à 95 % (new)',
-            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),
-            fillcolor='rgba(0, 102, 204, 0.15)',
-            showlegend=True
+            name='Intervalle de prévision Prophet à 95 %',
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.3)'),
+            fillcolor='rgba(0, 102, 204, 0.05)',
+            showlegend=False
         )
     )
     fig.add_trace(
@@ -974,12 +1076,58 @@ def plot_scatter_plotly(
             y=df_combined_new['prophet_pred'],
             mode='lines',
             line=dict(dash='dash', color='#0066CC'),  # Couleur bleu foncé
-            name='Prévision Prophet (new)',
-            showlegend=True
+            name='Prévision Prophet',
+            showlegend=False
         )
     )
 
+    # # Ajouter les plages d'incertitude CatBoost pour la période "new"
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=df_combined_new.index,
+    #         y=df_combined_new['catboost_pred_upper'],
+    #         mode='lines',
+    #         name='Plage supérieure (CatBoost - new)',
+    #         line=dict(dash='dash', color='rgba(255, 127, 80, 0.4)'),
+    #         showlegend=False
+    #     )
+    # )
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=df_combined_new.index,
+    #         y=df_combined_new['catboost_pred_lower'],
+    #         fill='tonexty',
+    #         mode='lines',
+    #         name='Plage inférieure CatBoost (new)',
+    #         line=dict(dash='dash', color='rgba(255, 127, 80, 0.4)'),
+    #         fillcolor='rgba(255, 127, 80, 0.15)',
+    #         showlegend=False
+    #     )
+    # )
+    #
+    # # Prévision CatBoost tendancielle "inter"
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=df_combined_inter.index,
+    #         y=df_combined_inter["catboost_pred"],
+    #         mode='lines',
+    #         line=dict(dash='dash', color='#FF7F50'),
+    #         name='Prévision CatBoost (inter)',
+    #         showlegend=True
+    #     ))
+    #
+    # # Prévision CatBoost tendancielle "new"
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=df_combined_new.index,
+    #         y=df_combined_new["catboost_pred"],
+    #         mode='lines',
+    #         line=dict(dash='dash', color='#FF7F50'),
+    #         name='Prévision CatBoost (new)',
+    #         showlegend=False
+    #     ))
 
+    # Layout
     fig.update_layout(
         width=None,
         height=None,
@@ -999,7 +1147,7 @@ def plot_segments_plotly(fig_plot_scatter_plotly, segments_old, segments_new):
     # Tracer les segments pour la première phase (en bleu)
     for segment in segments_old:
         if (
-            len(segment[0]) > 1 and len(segment[1]) > 1
+                len(segment[0]) > 1 and len(segment[1]) > 1
         ):  # S'assurer qu'il y a bien des points à tracer
             fig_plot_scatter_plotly.add_trace(
                 go.Scatter(
@@ -1029,11 +1177,11 @@ def plot_segments_plotly(fig_plot_scatter_plotly, segments_old, segments_new):
 
 
 def plot_additional_segments_plotly(
-    fig_plot_segments_plotly,
-    df_combined_old,
-    y_old_combined,
-    df_paliers_old,
-    df_paliers_new,
+        fig_plot_segments_plotly,
+        df_combined_old,
+        y_old_combined,
+        df_paliers_old,
+        df_paliers_new,
 ):
     # Ajouter le segment du premier point au début du premier palier
     premier_point_x = df_combined_old.index[0]
@@ -1087,18 +1235,18 @@ def plot_additional_segments_plotly(
 
 
 def annotate_durations_plotly(
-    fig_plot_additional_segments_plotly,
-    df_paliers_old,
-    df_paliers_new,
-    horizontal_durations_old,
-    horizontal_durations_new,
+        fig_plot_additional_segments_plotly,
+        df_paliers_old,
+        df_paliers_new,
+        horizontal_durations_old,
+        horizontal_durations_new,
 ):
     # Ajouter les annotations pour les paliers (durée) pour la première phase
     for i in range(len(df_paliers_old)):
         duration_days = horizontal_durations_old[i]
         mid_point = (
-            df_paliers_old.iloc[i]["Début"]
-            + (df_paliers_old.iloc[i]["Fin"] - df_paliers_old.iloc[i]["Début"]) / 2
+                df_paliers_old.iloc[i]["Début"]
+                + (df_paliers_old.iloc[i]["Fin"] - df_paliers_old.iloc[i]["Début"]) / 2
         )
         fig_plot_additional_segments_plotly.add_annotation(
             x=mid_point,
@@ -1117,8 +1265,8 @@ def annotate_durations_plotly(
     for i in range(len(df_paliers_new)):
         duration_days = horizontal_durations_new[i]
         mid_point = (
-            df_paliers_new.iloc[i]["Début"]
-            + (df_paliers_new.iloc[i]["Fin"] - df_paliers_new.iloc[i]["Début"]) / 2
+                df_paliers_new.iloc[i]["Début"]
+                + (df_paliers_new.iloc[i]["Fin"] - df_paliers_new.iloc[i]["Début"]) / 2
         )
         fig_plot_additional_segments_plotly.add_annotation(
             x=mid_point,
@@ -1138,11 +1286,11 @@ def annotate_durations_plotly(
 
 
 def add_vertical_segments_and_heights_plotly(
-    fig_annotate_durations_plotly,
-    df_paliers_old,
-    df_paliers_new,
-    horizontal_heights_old,
-    horizontal_heights_new,
+        fig_annotate_durations_plotly,
+        df_paliers_old,
+        df_paliers_new,
+        horizontal_heights_old,
+        horizontal_heights_new,
 ):
     # Ajouter les segments verticaux et les annotations pour les hauteurs pour la première phase
     for i in range(len(df_paliers_old) - 1):
@@ -1163,10 +1311,10 @@ def add_vertical_segments_and_heights_plotly(
         fig_annotate_durations_plotly.add_annotation(
             x=df_paliers_old.iloc[i]["Fin"],
             y=(
-                df_paliers_old.iloc[i]["Valeur moyenne"]
-                + df_paliers_old.iloc[i + 1]["Valeur moyenne"]
-            )
-            / 2,
+                      df_paliers_old.iloc[i]["Valeur moyenne"]
+                      + df_paliers_old.iloc[i + 1]["Valeur moyenne"]
+              )
+              / 2,
             text=f"{height_um} µm",
             showarrow=True,
             arrowhead=2,
@@ -1196,10 +1344,10 @@ def add_vertical_segments_and_heights_plotly(
         fig_annotate_durations_plotly.add_annotation(
             x=df_paliers_new.iloc[i]["Fin"],
             y=(
-                df_paliers_new.iloc[i]["Valeur moyenne"]
-                + df_paliers_new.iloc[i + 1]["Valeur moyenne"]
-            )
-            / 2,
+                      df_paliers_new.iloc[i]["Valeur moyenne"]
+                      + df_paliers_new.iloc[i + 1]["Valeur moyenne"]
+              )
+              / 2,
             text=f"{height_um} µm",
             showarrow=True,
             arrowhead=2,
