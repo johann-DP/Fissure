@@ -11,6 +11,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
+from prophet import Prophet
 
 from analysis.models import model_fissures_with_explanatory_vars
 
@@ -212,6 +213,34 @@ def test_stat(X_log, y_log, y_log_pred):
     plt.show()
 
     return None
+
+
+def add_prophet_forecast(df_combined_old, df_combined_internew):
+    # Préparer les données d'entraînement pour Prophet
+    df_prophet_train = df_combined_old.reset_index()[['Date', 'Bureau']]
+    df_prophet_train.columns = ['ds', 'y']  # Prophet nécessite des colonnes nommées 'ds' (dates) et 'y' (valeurs)
+
+    # Initialiser et entraîner le modèle Prophet
+    model_prophet = Prophet(interval_width=0.95, daily_seasonality=True)
+    model_prophet.fit(df_prophet_train)
+
+    # Préparer les futures dates pour la période de prévision couvrant "internew"
+    future_dates = pd.DataFrame(df_combined_internew.index).reset_index(drop=True)
+    future_dates.columns = ['ds']
+
+    # Effectuer les prédictions sur toute la période "internew"
+    forecast = model_prophet.predict(future_dates)
+
+    # S'assurer que les prédictions couvrent la période "internew"
+    forecast.set_index('ds', inplace=True)
+    forecast = forecast[['yhat', 'yhat_lower', 'yhat_upper']]
+
+    # Transformer les prédictions en logarithme pour rester cohérent avec le modèle précédent
+    df_combined_internew['prophet_pred'] = forecast['yhat']
+    df_combined_internew['prophet_pred_upper'] = forecast['yhat_upper']
+    df_combined_internew['prophet_pred_lower'] = forecast['yhat_lower']
+
+    return df_combined_internew
 
 
 def preprocessing_old_new(df_fissures, df_fissures_old):
@@ -637,6 +666,43 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
     # Validation empirique pour la période "new"
     print(f"Taux de couverture empirique pour la période 'new': {IPnew_ratio(df_combined_new) * 100:.2f}%")
 
+    # Ajouter les prédictions Prophet à df_combined_internew
+    df_combined_internew = add_prophet_forecast(df_combined_old, df_combined_internew)
+
+    # Répartition des prédictions Prophet de 'df_combined_internew' dans 'df_combined_inter' et 'df_combined_new'
+
+    # Réindexer df_combined_inter pour inclure toutes les dates quotidiennes manquantes
+    date_range_inter = pd.date_range(start=df_combined_inter.index.min(), end=df_combined_inter.index.max(), freq='D')
+    df_combined_inter = df_combined_inter.reindex(date_range_inter)
+
+    # Mettre à jour df_combined_inter avec les prévisions Prophet de 'df_combined_internew'
+    df_combined_inter[['prophet_pred', 'prophet_pred_upper', 'prophet_pred_lower']] = df_combined_internew[
+        ['prophet_pred', 'prophet_pred_upper', 'prophet_pred_lower']]
+
+    # Réindexer df_combined_new pour inclure toutes les dates quotidiennes manquantes
+    full_date_range_new = pd.date_range(start=df_combined_new.index.min(), end=df_combined_new.index.max(), freq='D')
+    df_combined_new = df_combined_new.reindex(full_date_range_new)
+
+    # Mettre à jour df_combined_new avec les prévisions Prophet de 'df_combined_internew'
+    df_combined_new[['prophet_pred', 'prophet_pred_upper', 'prophet_pred_lower']] = df_combined_internew[
+        ['prophet_pred', 'prophet_pred_upper', 'prophet_pred_lower']]
+
+    def Prophet_IPnew_ratio(df_combined_new):
+        # Exclure les lignes où les prédictions Prophet sont NaN
+        valid_points = df_combined_new[['Bureau', 'prophet_pred_lower', 'prophet_pred_upper']].dropna()
+
+        # Calculer si les valeurs de 'Bureau' sont à l'intérieur de l'intervalle de prédiction de Prophet
+        inside_interval_new = (valid_points['Bureau'] >= valid_points['prophet_pred_lower']) & (
+                valid_points['Bureau'] <= valid_points['prophet_pred_upper'])
+
+        # Calculer le taux de couverture
+        coverage_new = inside_interval_new.mean()
+        return coverage_new
+
+    # Affichage du taux de couverture empirique pour la période 'new'
+    print(
+        f"Taux de couverture empirique pour Prophet sur la période 'new': {Prophet_IPnew_ratio(df_combined_new) * 100:.2f}%")
+
     print("\n\nFin de la fonction 'preprocessing_old_new'\n\n")
 
     return (
@@ -845,6 +911,75 @@ def plot_scatter_plotly(
         )
     )
 
+    # Ajouter les prédictions de Prophet pour la période "inter"
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_inter.index,
+            y=df_combined_inter['prophet_pred_upper'],
+            mode='lines',
+            name='Plage supérieure (Prophet inter)',
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),  # Couleur bleu semi-transparente
+            showlegend=False
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_inter.index,
+            y=df_combined_inter['prophet_pred_lower'],
+            fill='tonexty',
+            mode='lines',
+            name='Intervalle de prévision Prophet à 95 % (inter)',
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),
+            fillcolor='rgba(0, 102, 204, 0.15)',
+            showlegend=True
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_inter.index,
+            y=df_combined_inter['prophet_pred'],
+            mode='lines',
+            line=dict(dash='dash', color='#0066CC'),  # Couleur bleu foncé
+            name='Prévision Prophet (inter)',
+            showlegend=True
+        )
+    )
+
+    # Ajouter les prédictions de Prophet pour la période "new"
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_new.index,
+            y=df_combined_new['prophet_pred_upper'],
+            mode='lines',
+            name='Plage supérieure (Prophet new)',
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),  # Couleur bleu semi-transparente
+            showlegend=False
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_new.index,
+            y=df_combined_new['prophet_pred_lower'],
+            fill='tonexty',
+            mode='lines',
+            name='Intervalle de prévision Prophet à 95 % (new)',
+            line=dict(dash='dash', color='rgba(0, 102, 204, 0.5)'),
+            fillcolor='rgba(0, 102, 204, 0.15)',
+            showlegend=True
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_combined_new.index,
+            y=df_combined_new['prophet_pred'],
+            mode='lines',
+            line=dict(dash='dash', color='#0066CC'),  # Couleur bleu foncé
+            name='Prévision Prophet (new)',
+            showlegend=True
+        )
+    )
+
+
     fig.update_layout(
         width=None,
         height=None,
@@ -852,6 +987,7 @@ def plot_scatter_plotly(
         yaxis_title="Écartement de la Fissure (mm)",
         title="Évolution de l'Écartement de la Fissure",
         showlegend=True,
+        legend=dict(font=dict(size=12))
     )
 
     fig_plot_scatter_plotly = fig
