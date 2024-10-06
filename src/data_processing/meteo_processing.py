@@ -36,6 +36,13 @@ def clean_data(df_combined):
     for column in skewed_columns:
         df_cleaned[column + "_log"] = np.log1p(df_cleaned[column])
 
+    # Changement parvenu le 6/10/2024
+    # Remplir les valeurs manquantes de 'Wind speed(km/h)' avec 0
+    df_cleaned['Wind speed(km/h)'].fillna(0, inplace=True)
+
+    # Supprimer les colonnes 'Wind speed(Hour)(km/h)' et 'Wind speed(Day)(km/h)'
+    df_cleaned.drop(columns=['Wind speed(Hour)(km/h)', 'Wind speed(Day)(km/h)'], inplace=True)
+
     return df_cleaned
 
 

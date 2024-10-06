@@ -243,7 +243,7 @@ def create_dashboard(
                                 options=[
                                     {"label": "Fissure", "value": "fissure"},
                                     {
-                                        "label": "Météo (traitement long)",
+                                        "label": "Météo",
                                         "value": "meteo",
                                     },
                                     {
@@ -332,20 +332,6 @@ def create_dashboard(
         if tab == "meteo":
             return dcc.Tabs(
                 [
-                    dcc.Tab(
-                        label="Boxplots",
-                        children=[
-                            dcc.Graph(
-                                figure=meteo_figures["boxplots"],
-                                style={
-                                    "width": "100%",
-                                    "height": "85vh",
-                                    "margin-top": "20px",
-                                },
-                                config={"responsive": True},
-                            )
-                        ],
-                    ),
                     dcc.Tab(
                         label="Températures",
                         children=[
@@ -469,6 +455,20 @@ def create_dashboard(
                         children=[
                             dcc.Graph(
                                 figure=meteo_figures["pairplots"],
+                                style={
+                                    "width": "100%",
+                                    "height": "85vh",
+                                    "margin-top": "20px",
+                                },
+                                config={"responsive": True},
+                            )
+                        ],
+                    ),
+                    dcc.Tab(
+                        label="Boxplots\n(traitement long)",
+                        children=[
+                            dcc.Graph(
+                                figure=meteo_figures["boxplots"],
                                 style={
                                     "width": "100%",
                                     "height": "85vh",

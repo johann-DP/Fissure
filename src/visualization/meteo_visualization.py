@@ -3,6 +3,7 @@ import plotly.express as px
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from rosely import WindRose
 
 
 def visualize_normalized_boxplots(df_normalized):
@@ -422,93 +423,180 @@ def plot_wind_speed_direction(df_cleaned):
         autosize=True,
     )
 
-    # Graphique pour la direction du vent avec un subplot supplémentaire pour l'angle
-    fig2 = make_subplots(rows=2, cols=1, vertical_spacing=0.1)
+    # # Graphique pour la direction du vent avec un subplot supplémentaire pour l'angle
+    # fig2 = make_subplots(rows=2, cols=1, vertical_spacing=0.1)
+    #
+    # # Traces pour sinus et cosinus
+    # fig2.add_trace(
+    #     go.Scatter(
+    #         x=df_cleaned["Time"],
+    #         y=df_cleaned["Wind direction sin"],
+    #         mode="lines",
+    #         name="Wind Direction Sin",
+    #         line=dict(color="blue", width=1),
+    #         opacity=0.15,
+    #     ),
+    #     row=2,
+    #     col=1,
+    # )
+    # fig2.add_trace(
+    #     go.Scatter(
+    #         x=df_cleaned["Time"],
+    #         y=df_cleaned["Wind direction sin MA"],
+    #         mode="lines",
+    #         name="Wind Direction Sin MA",
+    #         line=dict(color="blue", width=2),
+    #     ),
+    #     row=2,
+    #     col=1,
+    # )
+    # fig2.add_trace(
+    #     go.Scatter(
+    #         x=df_cleaned["Time"],
+    #         y=df_cleaned["Wind direction cos"],
+    #         mode="lines",
+    #         name="Wind Direction Cos",
+    #         line=dict(color="green", width=1),
+    #         opacity=0.15,
+    #     ),
+    #     row=2,
+    #     col=1,
+    # )
+    # fig2.add_trace(
+    #     go.Scatter(
+    #         x=df_cleaned["Time"],
+    #         y=df_cleaned["Wind direction cos MA"],
+    #         mode="lines",
+    #         name="Wind Direction Cos MA",
+    #         line=dict(color="green", width=2),
+    #     ),
+    #     row=2,
+    #     col=1,
+    # )
+    #
+    # # Trace pour l'angle de direction du vent
+    # fig2.add_trace(
+    #     go.Scatter(
+    #         x=df_cleaned["Time"],
+    #         y=df_cleaned["Wind direction"],
+    #         mode="lines",
+    #         name="Wind Direction",
+    #         line=dict(color="darkblue", width=2),
+    #         opacity=0.15,
+    #     ),
+    #     row=1,
+    #     col=1,
+    # )
+    # fig2.add_trace(
+    #     go.Scatter(
+    #         x=df_cleaned["Time"],
+    #         y=df_cleaned["Wind direction MA"],
+    #         mode="lines",
+    #         name="Wind Direction MA",
+    #         line=dict(color="darkblue", width=2),
+    #         opacity=0.5,
+    #     ),
+    #     row=1,
+    #     col=1,
+    # )
+    #
+    # fig2.update_layout(
+    #     title="Analyse détaillée de la direction du vent",
+    #     font=dict(size=20),
+    #     legend=dict(font=dict(size=10)),
+    #     autosize=True,
+    # )
+    #
+    # fig2.update_xaxes(title_text="Date", row=2, col=1)
+    # fig2.update_yaxes(title_text="Direction (sin et cos)", row=2, col=1)
+    # fig2.update_yaxes(title_text="Angle (°)", row=1, col=1)
 
-    # Traces pour sinus et cosinus
-    fig2.add_trace(
-        go.Scatter(
-            x=df_cleaned["Time"],
-            y=df_cleaned["Wind direction sin"],
-            mode="lines",
-            name="Wind Direction Sin",
-            line=dict(color="blue", width=1),
-            opacity=0.15,
+    # Creating the plotly wind rose figure
+
+    fig2 = go.Figure()
+
+    # Conversion des degrés en radians pour la visualisation
+    df_cleaned['Wind direction radians'] = np.deg2rad(df_cleaned['Wind direction'])
+
+    # Ajouter la trace principale pour la direction et la vitesse du vent
+    fig2.add_trace(go.Scatterpolar(
+        r=np.log1p(df_cleaned['Wind speed(km/h)']),  # Échelle logarithmique pour la vitesse du vent
+        theta=-np.degrees(df_cleaned['Wind direction radians']),  # Conversion en degrés avec inversion de l'axe
+        mode='markers',
+        name='Wind Speed and Direction',
+        marker=dict(
+            color=df_cleaned['Wind speed(km/h)'],  # Couleur en fonction de la vitesse du vent
+            colorscale='thermal',
+            reversescale=True,
+            cmin=0,
+            cmax=df_cleaned['Wind speed(km/h)'].max(),
+            size=10,  # Taille des marqueurs
+            opacity=(df_cleaned['Wind speed(km/h)'] - df_cleaned['Wind speed(km/h)'].min()) / (df_cleaned['Wind speed(km/h)'].max() - df_cleaned['Wind speed(km/h)'].min()) * (1 - np.exp(-0.5*df_cleaned['Wind speed(km/h)'])),
+            colorbar=dict(
+                title=dict(text="Wind Speed (km/h)", side="right", font=dict(size=14)),  # Titre de la barre de couleur
+                tickvals=[1, 2, 5, 10, 20, 50],  # Valeurs correspondant à l'échelle log
+                ticktext=[" 1", " 2", " 5", " 10", " 20", " 50"],  # Textes correspondants
+                thickness=20,  # Épaisseur de la barre de couleur
+                len=0.6,  # Longueur de la barre de couleur
+            ),
         ),
-        row=2,
-        col=1,
-    )
+    ))
+
+    # Identification des 5 valeurs les plus élevées de vitesse du vent
+    top_5_speeds = df_cleaned.nlargest(5, 'Wind speed(km/h)')
+
+    # Ajout d'une trace Scatterpolar pour les annotations des 5 valeurs les plus fortes
     fig2.add_trace(
-        go.Scatter(
-            x=df_cleaned["Time"],
-            y=df_cleaned["Wind direction sin MA"],
-            mode="lines",
-            name="Wind Direction Sin MA",
-            line=dict(color="blue", width=2),
-        ),
-        row=2,
-        col=1,
-    )
-    fig2.add_trace(
-        go.Scatter(
-            x=df_cleaned["Time"],
-            y=df_cleaned["Wind direction cos"],
-            mode="lines",
-            name="Wind Direction Cos",
-            line=dict(color="green", width=1),
-            opacity=0.15,
-        ),
-        row=2,
-        col=1,
-    )
-    fig2.add_trace(
-        go.Scatter(
-            x=df_cleaned["Time"],
-            y=df_cleaned["Wind direction cos MA"],
-            mode="lines",
-            name="Wind Direction Cos MA",
-            line=dict(color="green", width=2),
-        ),
-        row=2,
-        col=1,
+        go.Scatterpolar(
+            r=np.log1p(top_5_speeds["Wind speed(km/h)"] - 2),  # Appliquer une échelle logarithmique pour le rayon
+            theta=-np.degrees(top_5_speeds['Wind direction radians']),  # Convertir les radians en degrés
+            mode="text",
+            text=[f"{speed:.1f} km/h<br>{date.strftime('%Y-%m-%d')}" for speed, date in zip(top_5_speeds['Wind speed(km/h)'], top_5_speeds['Time'])],  # Texte de l'annotation
+            textposition=["bottom left", "top left", "bottom left", "bottom left", "bottom left"],
+            textfont=dict(size=12, color="black"),
+            showlegend=False
+        )
     )
 
-    # Trace pour l'angle de direction du vent
-    fig2.add_trace(
-        go.Scatter(
-            x=df_cleaned["Time"],
-            y=df_cleaned["Wind direction"],
-            mode="lines",
-            name="Wind Direction",
-            line=dict(color="darkblue", width=2),
-            opacity=0.15,
-        ),
-        row=1,
-        col=1,
-    )
-    fig2.add_trace(
-        go.Scatter(
-            x=df_cleaned["Time"],
-            y=df_cleaned["Wind direction MA"],
-            mode="lines",
-            name="Wind Direction MA",
-            line=dict(color="darkblue", width=2),
-            opacity=0.5,
-        ),
-        row=1,
-        col=1,
-    )
-
+    # Mise à jour de la mise en page pour une meilleure lisibilité et esthétique
     fig2.update_layout(
-        title="Analyse détaillée de la direction du vent",
-        font=dict(size=20),
-        legend=dict(font=dict(size=10)),
+        title=dict(
+            text="Visualisation radiale de la direction et de la vitesse du vent",
+            font=dict(size=26),  # Taille du titre
+            # x=0.5,  # Centrer le titre
+        ),
+        polar=dict(
+            radialaxis=dict(
+                range=[0, np.log1p(df_cleaned['Wind speed(km/h)'].max())],  # Échelle logarithmique pour l'axe radial
+                tickvals=np.log1p([1, 2, 5, 10, 20, 50]),  # Ticks correspondant à une échelle logarithmique
+                ticktext=[" 1", " 2", " 5", " 10", " 20", " 50"],  # Textes des ticks pour plus de clarté
+                showline=True,
+                linewidth=1.5,
+                tickangle=45,  # Orientation des étiquettes des ticks
+                tickfont=dict(size=14, color='blue'),  # Taille et couleur des étiquettes des ticks
+                gridcolor="blue",  # Couleur de la grille
+                gridwidth=0.7,  # Épaisseur de la grille
+            ),
+            angularaxis=dict(
+                tickvals=[0, 45, 90, 135, 180, 225, 270, 315],  # Points cardinaux
+                ticktext=["N", "NE", "E", "SE", "S", "SW", "W", "NW"],  # Étiquettes des directions
+                direction="clockwise",  # Sens de rotation conforme à la direction du vent
+                rotation=90,  # Rotation pour aligner le 0° vers le haut
+                tickfont=dict(size=20, color='blue'),  # Taille et couleur des étiquettes des points cardinaux
+                gridcolor="blue",
+                gridwidth=0.7,  # Épaisseur de la grille angulaire
+            ),
+        ),
+        legend=dict(
+            font=dict(size=12),
+            orientation="h",
+            yanchor="bottom",
+            y=-0.3,
+            xanchor="center",
+            x=0.5
+        ),
         autosize=True,
     )
-
-    fig2.update_xaxes(title_text="Date", row=2, col=1)
-    fig2.update_yaxes(title_text="Direction (sin et cos)", row=2, col=1)
-    fig2.update_yaxes(title_text="Angle (°)", row=1, col=1)
 
     return fig1, fig2
 
