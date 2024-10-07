@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 from scipy.stats import linregress, pearsonr, spearmanr
 import scipy.stats as stats
 import statsmodels.api as sm
+from statsmodels.api import OLS, add_constant
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
@@ -15,6 +16,7 @@ from scipy.interpolate import interp1d
 from prophet import Prophet
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from catboost import CatBoostRegressor
+import seaborn as sns
 
 from analysis.models import model_fissures_with_explanatory_vars
 
@@ -1450,3 +1452,363 @@ def dataviz_old_new(df_fissures, df_fissures_old):
     )
 
     return fig
+
+
+def adjust_new_series(df_dates_old, df_dates_new):
+    """
+    Ajuste les valeurs de la période 'new' en utilisant un modèle logarithmique basé sur les données 'old'.
+
+    Arguments:
+    df_dates_old : DataFrame contenant les dates et les valeurs de la période 'old'.
+    df_dates_new : DataFrame contenant les dates et les valeurs de la période 'new'.
+
+    Retourne:
+    df_old : DataFrame avec les données de la période 'old'.
+    df_new_adjusted : DataFrame avec les données ajustées de la période 'new'.
+    """
+
+    # Préparation des données pour l'ajustement
+    df_old = df_dates_old.copy()
+    df_new = df_dates_new.copy()
+
+    # Modèle logarithmique du 13/04/2016 à la dernière date des mesures 'old'
+    df_log = df_old[df_old.index >= "2016-04-13"]
+    X_log = (df_log.index - df_log.index.min()).days.values.reshape(-1, 1)
+    y_log = df_log["Bureau_old"].values
+    model_log = LinearRegression().fit(X_log, np.exp(y_log))  # Régression sur les valeurs exp
+    y_log_pred = np.log(model_log.predict(X_log))
+
+    # Prédiction pour la première date de la seconde phase
+    X_new_start = np.array([(df_new.index[0] - df_log.index.min()).days]).reshape(-1, 1)
+    predicted_start = np.log(
+        model_log.predict(X_new_start)[0]) - 0.103  # Offset dû à la fluctuation de la première mesure
+
+    # Ajustement proportionnel
+    scaling_factor = 1.12  # Estimation due au changement de hauteur de prise de mesures
+    df_new["Bureau_adjusted"] = predicted_start + scaling_factor * (df_new["Bureau"] - df_new["Bureau"].iloc[0])
+
+    return df_old, df_new
+
+
+def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissure_old.xlsx', path_new='data/Fissures/Fissure_2.xlsx'):
+    """
+    Crée une figure avec les points des périodes 'old' et 'new' en utilisant les dates correctes
+    provenant des fichiers .xlsx et les valeurs ajustées en utilisant la fonction adjust_new_series.
+    Ajoute les prévisions avec le modèle linéaire.
+    """
+
+    # Chargement des fichiers .xlsx pour récupérer les dates correctes
+    df_dates_old = pd.read_excel(path_old, sheet_name='Feuil3', usecols=["date", "bureau_old"])
+    df_dates_new = pd.read_excel(path_new, usecols=["Date", "Bureau\n(mm)"])
+
+    # Mise en forme des DataFrames
+    df_dates_old.rename(columns={"date": "Date", "bureau_old": "Bureau_old"}, inplace=True)
+    df_dates_new.rename(columns={"Date": "Date", "Bureau\n(mm)": "Bureau"}, inplace=True)
+    df_dates_old.set_index('Date', inplace=True)
+    df_dates_new.set_index('Date', inplace=True)
+
+    # Appel de la fonction d'ajustement
+    df_old, df_new_adjusted = adjust_new_series(df_dates_old, df_dates_new)
+
+    # Ajout de la colonne 'Date_ordinal' pour la régression linéaire
+    df_new_adjusted['Date_ordinal'] = df_new_adjusted.index.map(pd.Timestamp.toordinal)
+
+    # Création de la figure avec les points ajustés
+    fig = go.Figure()
+
+    # Ajout des points pour la période 'old'
+    fig.add_trace(
+        go.Scatter(
+            x=df_old.index,
+            y=df_old["Bureau_old"],
+            mode="markers",
+            marker=dict(color="gray", size=5),
+            name="Période ancienne",
+        )
+    )
+
+    # Ajout des points ajustés pour la période 'new'
+    fig.add_trace(
+        go.Scatter(
+            x=df_new_adjusted.index,
+            y=df_new_adjusted["Bureau_adjusted"],
+            mode="markers",
+            marker=dict(color="blue", size=5),
+            name="Période récente ajustée",
+        )
+    )
+
+    # Ajout de la modélisation linéaire
+    fig, y_pred_linear, linear_model = linear_model_forecast(df_new_adjusted, fig)
+    # Ajout de la modélisation exponentielle
+    fig, y_pred_linear, exponential_model = exponential_model_forecast(df_new_adjusted, fig)
+
+    # Ajouter Prophet sur le DataFrame combiné des anciennes et nouvelles données
+    df_combined = pd.concat([df_old[['Bureau_old']].rename(columns={'Bureau_old': 'Bureau'}),
+                             df_new_adjusted[['Bureau_adjusted']].rename(columns={'Bureau_adjusted': 'Bureau'})])
+
+    fig, _ = prophet_forecast(df_combined, fig)
+
+    # Configuration de la figure
+    fig.update_layout(
+        title="Modèles de prévision de l'écartement",
+        font_size=20,
+        xaxis_title="Date",
+        xaxis=dict(
+            range=['2023-12-03', '2028-01-01'],
+            showgrid=True,
+            tickformat="%Y-%m",
+        ),
+        yaxis_title="Écartement (mm)",
+        yaxis=dict(
+            range=[3.5, 5.7],
+            showgrid=True,
+        ),
+        showlegend=True,
+    )
+
+    return fig
+
+
+def linear_model_forecast(df_new_adjusted, fig):
+    """
+    Ajoute le modèle linéaire avec les IC et IP à la figure.
+    """
+    X = sm.add_constant(df_new_adjusted['Date_ordinal'])
+    y = df_new_adjusted['Bureau_adjusted']
+    linear_model = sm.OLS(y, X).fit()
+    y_pred_linear = linear_model.predict(X)
+
+    # Prévisions à 20 ans
+    last_date_ordinal = df_new_adjusted['Date_ordinal'].max()
+    future_dates_ordinal = np.arange(last_date_ordinal + 1, last_date_ordinal + 1 + 20 * 365)
+    X_future = sm.add_constant(future_dates_ordinal)
+    y_future_pred_linear = linear_model.predict(X_future)
+    future_dates = [pd.Timestamp.fromordinal(date) for date in future_dates_ordinal]
+
+    # Calcul de l'IC de Student
+    predictions_linear = linear_model.get_prediction(X)
+    prediction_summary_linear = predictions_linear.summary_frame(alpha=0.05)
+    ci_lower_student_linear = prediction_summary_linear['mean_ci_lower']
+    ci_upper_student_linear = prediction_summary_linear['mean_ci_upper']
+
+    # Ajouter l'IC de Student en remplissant l'espace entre les courbes inférieure et supérieure
+    fig.add_trace(
+        go.Scatter(
+            x=list(df_new_adjusted.index) + list(df_new_adjusted.index[::-1]),
+            y=list(ci_lower_student_linear) + list(ci_upper_student_linear[::-1]),
+            fill='toself',
+            fillcolor='rgba(255, 0, 0, 0.2)',
+            mode='lines',
+            line=dict(color='red', dash='dot'),
+            name='IC Student (Linéaire)',
+            showlegend=True,
+        )
+    )
+
+    # Calcul des distances orthogonales pour l'IC effectif
+    slope = linear_model.params[1]
+    distances_orthogonales = (y - y_pred_linear) / np.sqrt(1 + slope ** 2)
+    sorted_indices = np.argsort(np.abs(distances_orthogonales))
+    num_points_to_keep = int(0.95 * len(distances_orthogonales))
+    indices_to_keep = sorted_indices[:num_points_to_keep]
+    distance_orthogonale_pos = np.max(distances_orthogonales[indices_to_keep])
+    distance_orthogonale_neg = np.min(distances_orthogonales[indices_to_keep])
+
+    # Ajouter l'IC effectif supérieur et inférieur
+    fig.add_trace(
+        go.Scatter(
+            x=df_new_adjusted.index,
+            y=y_pred_linear + distance_orthogonale_pos * np.sqrt(1 + slope ** 2),
+            mode='lines',
+            line=dict(color='orange', dash='dash'),
+            name='IC Effectif à 95 % (Linéaire)',
+            showlegend=True
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_new_adjusted.index,
+            y=y_pred_linear + distance_orthogonale_neg * np.sqrt(1 + slope ** 2),
+            mode='lines',
+            line=dict(color='orange', dash='dash'),
+            name='IC Effectif Inférieur (Linéaire)',
+            showlegend=False
+        )
+    )
+
+    # Intervalles de prédiction (IP) pour la période de prévision
+    n = len(X)
+    x_mean = np.mean(df_new_adjusted['Date_ordinal'])
+    var_res_linear = np.sum((y - y_pred_linear) ** 2) / (n - 2)
+    var_pred_future_linear = var_res_linear * (1 + 1 / n + ((future_dates_ordinal - x_mean) ** 2) / np.sum(
+        (df_new_adjusted['Date_ordinal'] - x_mean) ** 2))
+    ip_upper_future_linear = y_future_pred_linear + 1.96 * np.sqrt(var_pred_future_linear)
+    ip_lower_future_linear = y_future_pred_linear - 1.96 * np.sqrt(var_pred_future_linear)
+
+    # Ajouter l'IP linéaire avec remplissage
+    fig.add_trace(
+        go.Scatter(
+            x=future_dates + future_dates[::-1],
+            y=list(ip_upper_future_linear) + list(ip_lower_future_linear[::-1]),
+            fill='toself',
+            fillcolor='rgba(0, 255, 0, 0.2)',
+            line=dict(color='rgba(0, 255, 0, 0)'),
+            name='IP Linéaire',
+            showlegend=True,
+        )
+    )
+
+    # Ajout de la régression linéaire et des prévisions
+    fig.add_trace(
+        go.Scatter(
+            x=df_new_adjusted.index,
+            y=y_pred_linear,
+            mode='lines',
+            name='Régression Linéaire (OLS)',
+            line=dict(color='green'),
+            showlegend=True
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=future_dates,
+            y=y_future_pred_linear,
+            mode='lines',
+            name='Prévision linéaire',
+            line=dict(color='green', dash='dot'),
+            showlegend=False
+        )
+    )
+
+    return fig, y_pred_linear, linear_model
+
+
+def exponential_model_forecast(df_new_adjusted, fig):
+    """
+    Ajoute le modèle exponentiel avec les IC et IP à la figure.
+    """
+    X = sm.add_constant(df_new_adjusted['Date_ordinal'])
+    y = df_new_adjusted['Bureau_adjusted']
+    y_log = np.log(y)
+
+    # Ajustement du modèle exponentiel (régression linéaire sur les log)
+    exponential_model = sm.OLS(y_log, X).fit()
+    y_pred_exponential = np.exp(exponential_model.predict(X))
+
+    # Prévisions exponentielles à 20 ans
+    last_date_ordinal = df_new_adjusted['Date_ordinal'].max()
+    future_dates_ordinal = np.arange(last_date_ordinal + 1, last_date_ordinal + 1 + 20 * 365)
+    X_future = sm.add_constant(future_dates_ordinal)
+    y_future_pred_exponential = np.exp(exponential_model.predict(X_future))
+    future_dates = [pd.Timestamp.fromordinal(int(date)) for date in future_dates_ordinal]
+
+    # Calcul de l'IC de Student
+    predictions_exponential = exponential_model.get_prediction(X)
+    prediction_summary_exponential = predictions_exponential.summary_frame(alpha=0.05)
+    ci_lower_student_exp = np.exp(prediction_summary_exponential['mean_ci_lower'])
+    ci_upper_student_exp = np.exp(prediction_summary_exponential['mean_ci_upper'])
+
+    # Ajouter l'IC de Student en remplissant l'espace entre les courbes inférieure et supérieure
+    fig.add_trace(
+        go.Scatter(
+            x=list(df_new_adjusted.index) + list(df_new_adjusted.index[::-1]),
+            y=list(ci_lower_student_exp) + list(ci_upper_student_exp[::-1]),
+            fill='toself',
+            fillcolor='rgba(128, 0, 128, 0.2)',
+            mode='lines',
+            line=dict(color='purple', dash='dot'),
+            name='IC Student (Exponentiel)',
+            showlegend=True,
+        )
+    )
+
+    # Intervalles de prédiction (IP) pour la période de prévision
+    n = len(X)
+    x_mean = np.mean(df_new_adjusted['Date_ordinal'])
+    var_res_exp = np.sum((y_log - np.log(y_pred_exponential)) ** 2) / (n - 2)
+    var_pred_future_exp = var_res_exp * (1 + 1 / n + ((future_dates_ordinal - x_mean) ** 2) / np.sum(
+        (df_new_adjusted['Date_ordinal'] - x_mean) ** 2))
+    ip_upper_future_exp = np.exp(np.log(y_future_pred_exponential) + 1.96 * np.sqrt(var_pred_future_exp))
+    ip_lower_future_exp = np.exp(np.log(y_future_pred_exponential) - 1.96 * np.sqrt(var_pred_future_exp))
+
+    # Ajouter l'IP exponentiel avec remplissage
+    fig.add_trace(
+        go.Scatter(
+            x=future_dates + future_dates[::-1],
+            y=list(ip_upper_future_exp) + list(ip_lower_future_exp[::-1]),
+            fill='toself',
+            fillcolor='rgba(128, 0, 128, 0.2)',
+            line=dict(color='rgba(128, 0, 128, 0)'),
+            name='IP Exponentiel',
+            showlegend=True,
+        )
+    )
+
+    # Ajout de la régression exponentielle et des prévisions
+    fig.add_trace(
+        go.Scatter(
+            x=df_new_adjusted.index,
+            y=y_pred_exponential,
+            mode='lines',
+            name='Modèle Exponentiel',
+            line=dict(color='purple'),
+            showlegend=True
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=future_dates,
+            y=y_future_pred_exponential,
+            mode='lines',
+            name='Prévision exponentielle',
+            line=dict(color='purple', dash='dot'),
+            showlegend=True
+        )
+    )
+
+    return fig, y_pred_exponential, exponential_model
+
+
+def prophet_forecast(df_combined, fig):
+    """
+    Applique un modèle Prophet pour prévoir les fissures en utilisant le DataFrame combiné 'df_combined'.
+    """
+    df_combined = df_combined[df_combined.index >= "13-04-2016"]
+    df_combined = df_combined.reset_index().rename(columns={'Date': 'ds', 'Bureau': 'y'})
+
+    # Initialisation et ajustement du modèle Prophet
+    model = Prophet(interval_width=0.95) #, seasonality_mode='multiplicative', n_changepoints=20)
+    # model.add_seasonality(name='palier', period=200, fourier_order=5)
+    model.fit(df_combined)
+
+    # Création des futures dates (20 ans à l'avance)
+    future_dates = model.make_future_dataframe(periods=20 * 365)
+    forecast = model.predict(future_dates)
+
+    # Ajout des prévisions de Prophet à la figure
+    fig.add_trace(
+        go.Scatter(
+            x=forecast['ds'],
+            y=forecast['yhat'],
+            mode='lines',
+            name='Prévision Prophet',
+            line=dict(color='blue', dash='dot'),
+            showlegend=True
+        )
+    )
+
+    # Ajout de l'intervalle de confiance de Prophet
+    fig.add_trace(
+        go.Scatter(
+            x=list(forecast['ds']) + list(forecast['ds'][::-1]),
+            y=list(forecast['yhat_lower']) + list(forecast['yhat_upper'][::-1]),
+            fill='toself',
+            fillcolor='rgba(0, 100, 250, 0.1)',
+            line=dict(color='rgba(0, 100, 250, 0)'),
+            name='IC/IP Prophet',
+            showlegend=True,
+        )
+    )
+
+    return fig, forecast['yhat']

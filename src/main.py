@@ -21,7 +21,8 @@ from data_processing.meteo_processing import (add_moving_averages,
                                               save_cleaned_data)
 from visualization.fissures_visualization import (dataviz_evolution,
                                                   dataviz_old_new,
-                                                  preprocessing_old_new)
+                                                  preprocessing_old_new,
+                                                  dataviz_forecast)
 from visualization.meteo_visualization import (plot_humidity, plot_light_uv,
                                                plot_moving_averages,
                                                plot_pairplot,
@@ -128,6 +129,7 @@ def prepare_fissure_data():
     second_phase_data, third_phase_data, plotly_loess = loess_regression(df_fissures)
     regression_results_df, plotly_RLevol = linear_regression(df_fissures)
     plotly_LRFissure = regression_comparison(df_fissures)
+    plotly_fissure_forecast = dataviz_forecast(df_fissures, df_fissures_old)
 
     return (
         df_fissures,
@@ -138,6 +140,7 @@ def prepare_fissure_data():
             "loess": plotly_loess,
             "trend": plotly_RLevol,
             "reglin": plotly_LRFissure,
+            "fissure_forecast": plotly_fissure_forecast,
         },
     )
 
@@ -503,6 +506,20 @@ def create_dashboard(
                         children=[
                             dcc.Graph(
                                 figure=fissure_figures["fissures_old_new"],
+                                style={
+                                    "width": "100%",
+                                    "height": "85vh",
+                                    "margin-top": "20px",
+                                },
+                                config={"responsive": True},
+                            )
+                        ],
+                    ),
+                    dcc.Tab(
+                        label="Fissure Bureau : prévisions",
+                        children=[
+                            dcc.Graph(
+                                figure=fissure_figures["fissure_forecast"],
                                 style={
                                     "width": "100%",
                                     "height": "85vh",
