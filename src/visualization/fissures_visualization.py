@@ -17,6 +17,8 @@ from prophet import Prophet
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from catboost import CatBoostRegressor
 import seaborn as sns
+from joblib import Parallel, delayed
+from scipy.optimize import minimize
 
 from analysis.models import model_fissures_with_explanatory_vars
 
@@ -296,8 +298,10 @@ def add_catboost_forecast(df_combined_old, df_combined_internew):
 
     # Remplir les lags à partir des valeurs récentes de l'entraînement
     df_combined_internew['lag_1'] = df_combined_old['Bureau'].iloc[-1]
-    df_combined_internew['lag_7'] = df_combined_old['Bureau'].iloc[-7] if len(df_combined_old) >= 7 else df_combined_old['Bureau'].iloc[0]
-    df_combined_internew['lag_30'] = df_combined_old['Bureau'].iloc[-30] if len(df_combined_old) >= 30 else df_combined_old['Bureau'].iloc[0]
+    df_combined_internew['lag_7'] = df_combined_old['Bureau'].iloc[-7] if len(df_combined_old) >= 7 else \
+    df_combined_old['Bureau'].iloc[0]
+    df_combined_internew['lag_30'] = df_combined_old['Bureau'].iloc[-30] if len(df_combined_old) >= 30 else \
+    df_combined_old['Bureau'].iloc[0]
 
     # Prédictions avec CatBoost
     catboost_pred_log = model_catboost.predict(df_combined_internew[features])
@@ -1494,7 +1498,8 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
     """
     Crée une figure avec les points des périodes 'old' et 'new' en utilisant les dates correctes
     provenant des fichiers .xlsx et les valeurs ajustées en utilisant la fonction adjust_new_series.
-    Ajoute les prévisions avec le modèle linéaire.
+    Ajoute les prévisions avec le modèle linéaire, exponentiel et Prophet.
+    Ajoute un point respectant toutes les contraintes d'intervalles (IP uniquement).
     """
 
     # Chargement des fichiers .xlsx pour récupérer les dates correctes
@@ -1538,16 +1543,208 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
         )
     )
 
-    # Ajout de la modélisation linéaire
-    fig, y_pred_linear, linear_model = linear_model_forecast(df_new_adjusted, fig)
-    # Ajout de la modélisation exponentielle
-    fig, y_pred_linear, exponential_model = exponential_model_forecast(df_new_adjusted, fig)
+    # Appel des modèles et récupération des IP
+    fig, y_pred_linear, linear_intervals = linear_model_forecast(df_new_adjusted, fig)
+    fig, y_pred_exponential, exp_intervals = exponential_model_forecast(df_new_adjusted, fig)
 
-    # Ajouter Prophet sur le DataFrame combiné des anciennes et nouvelles données
+    # Combinaison des anciennes et nouvelles données pour Prophet
     df_combined = pd.concat([df_old[['Bureau_old']].rename(columns={'Bureau_old': 'Bureau'}),
                              df_new_adjusted[['Bureau_adjusted']].rename(columns={'Bureau_adjusted': 'Bureau'})])
 
-    fig, _ = prophet_forecast(df_combined, fig)
+    fig, yhat_prophet, prophet_intervals = prophet_forecast(df_combined, fig)
+
+    # Localisation du point le plus tardif respectant toutes les conditions d'intervalles (IP)
+    point_to_add = find_latest_intersection_direct(linear_intervals, exp_intervals, prophet_intervals)
+
+    # Ajout du point à la figure si trouvé
+    if point_to_add:
+        fig.add_trace(
+            go.Scatter(
+                x=[point_to_add['date']],
+                y=[point_to_add['value']],
+                mode='markers',
+                marker=dict(color='red', size=10, symbol='x'),
+                name='Prévision la plus lointaine'
+            )
+        )
+
+        # Calcul de l'écart avec le premier point de df_dates_new pour le point principal
+        ecart = point_to_add['value'] - df_new_adjusted["Bureau_adjusted"].iloc[0]
+
+        # Ajout de l'annotation pour le point principal
+        fig.add_annotation(
+            x=point_to_add['date'],
+            y=point_to_add['value'],
+            text=f"Date: {point_to_add['date'].strftime('%Y-%m-%d')}<br>Écart: {ecart:.2f} mm",
+            showarrow=True,
+            arrowhead=0,
+            ax=0,
+            ay=-40,
+            font=dict(size=12, color="red"),
+            align="left",
+            bordercolor="red",
+            borderwidth=1,
+            bgcolor="cornsilk",
+        )
+
+        # Convertir les dates de prophet_intervals en format Timestamp si ce n'est pas déjà le cas
+        prophet_dates = pd.to_datetime(prophet_intervals['future_dates'])
+
+        # Trouver l'indice correspondant à la date du point déterminé pour chacun des modèles
+        lin_idx = linear_intervals['future_dates'].index(point_to_add['date'])
+        exp_idx = exp_intervals['future_dates'].index(point_to_add['date'])
+        prophet_idx = prophet_dates.tolist().index(point_to_add['date'])
+
+        # Déterminer les ordonnées maximale et minimale pour la date du point trouvé
+        upper_max = max(
+            linear_intervals['ip_upper'][lin_idx],
+            exp_intervals['ip_upper'][exp_idx],
+            prophet_intervals['ip_upper'][prophet_idx]
+        )
+
+        lower_min = min(
+            linear_intervals['ip_lower'][lin_idx],
+            exp_intervals['ip_lower'][exp_idx],
+            prophet_intervals['ip_lower'][prophet_idx]
+        )
+
+        # Déterminer la couleur du point en fonction de l'intervalle auquel appartient lower_min
+        if lower_min == linear_intervals['ip_lower'][lin_idx]:
+            lower_color = 'green'  # Couleur pour le modèle linéaire
+        elif lower_min == exp_intervals['ip_lower'][exp_idx]:
+            lower_color = 'purple'  # Couleur pour le modèle exponentiel
+        else:
+            lower_color = 'blue'  # Couleur pour le modèle Prophet
+
+        # Déterminer la couleur du point en fonction de l'intervalle auquel appartient upper_max
+        if upper_max == linear_intervals['ip_upper'][lin_idx]:
+            upper_color = 'green'  # Couleur pour le modèle linéaire
+        elif upper_max == exp_intervals['ip_upper'][exp_idx]:
+            upper_color = 'purple'  # Couleur pour le modèle exponentiel
+        else:
+            upper_color = 'blue'  # Couleur pour le modèle Prophet
+
+        # Ajout des points aux ordonnées maximale et minimale avec les couleurs spécifiques
+        fig.add_trace(
+            go.Scatter(
+                x=[point_to_add['date']],
+                y=[upper_max],
+                mode='markers',
+                marker=dict(color=upper_color, size=10, symbol='triangle-up'),
+                name='Écart maximal'
+            )
+        )
+
+        fig.add_trace(
+            go.Scatter(
+                x=[point_to_add['date']],
+                y=[lower_min],
+                mode='markers',
+                marker=dict(color=lower_color, size=10, symbol='triangle-down'),
+                name='Écart minimal'
+            )
+        )
+
+        # Calcul des écarts avec le premier point de df_dates_new
+        ecart_upper = upper_max - df_new_adjusted["Bureau_adjusted"].iloc[0]
+        ecart_lower = lower_min - df_new_adjusted["Bureau_adjusted"].iloc[0]
+
+        # Ajout des annotations pour ces points
+        fig.add_annotation(
+            x=point_to_add['date'],
+            y=upper_max,
+            text=f"Écart: {ecart_upper:.2f} mm",
+            showarrow=True,
+            arrowhead=0,
+            ax=0,
+            ay=-40,
+            font=dict(size=12, color=upper_color),
+            align="left",
+            bordercolor=upper_color,
+            borderwidth=1,
+            bgcolor="cornsilk",
+        )
+
+        fig.add_annotation(
+            x=point_to_add['date'],
+            y=lower_min,
+            text=f"Écart: {ecart_lower:.2f} mm",
+            showarrow=True,
+            arrowhead=0,
+            ax=0,
+            ay=40,
+            font=dict(size=12, color=lower_color),
+            align="left",
+            bordercolor=lower_color,
+            borderwidth=1,
+            bgcolor="cornsilk",
+        )
+
+        # Détermination de la dernière date disponible dans les intervalles des modèles
+        last_date_lin = linear_intervals['future_dates'][-1]
+        last_date_exp = exp_intervals['future_dates'][-1]
+        last_date_prophet = prophet_dates[-1]
+
+        # Prendre la date la plus ancienne parmi les dernières dates communes
+        last_date = min(last_date_lin, last_date_exp, last_date_prophet)
+
+        # Trouver les indices correspondants pour cette dernière date
+        last_lin_idx = linear_intervals['future_dates'].index(last_date)
+        last_exp_idx = exp_intervals['future_dates'].index(last_date)
+        last_prophet_idx = prophet_dates.tolist().index(last_date)
+
+        # Déterminer les ordonnées upper et lower à la dernière date
+        last_upper = max(
+            linear_intervals['ip_upper'][last_lin_idx],
+            exp_intervals['ip_upper'][last_exp_idx],
+            prophet_intervals['ip_upper'][last_prophet_idx]
+        )
+
+        last_lower = min(
+            linear_intervals['ip_lower'][last_lin_idx],
+            exp_intervals['ip_lower'][last_exp_idx],
+            prophet_intervals['ip_lower'][last_prophet_idx]
+        )
+
+        # Calcul des écarts avec le premier point de df_new_adjusted pour la dernière date
+        ecart_last_upper = last_upper - df_new_adjusted["Bureau_adjusted"].iloc[0]
+        ecart_last_lower = last_lower - df_new_adjusted["Bureau_adjusted"].iloc[0]
+
+        # Ajout des annotations pour les points à la dernière date
+        fig.add_annotation(
+            x=last_date,
+            y=last_upper,
+            text=f"Écart: {ecart_last_upper:.2f} mm",
+            showarrow=True,
+            arrowhead=2,
+            ax=0,
+            ay=-40,
+            font=dict(size=12, color="black"),
+            align="left",
+            bordercolor="black",
+            borderwidth=1,
+            bgcolor="white",
+        )
+
+        fig.add_annotation(
+            x=last_date,
+            y=last_lower,
+            text=f"Écart: {ecart_last_lower:.2f} mm",
+            showarrow=True,
+            arrowhead=2,
+            ax=0,
+            ay=40,
+            font=dict(size=12, color="black"),
+            align="left",
+            bordercolor="black",
+            borderwidth=1,
+            bgcolor="white",
+        )
+
+        # Mise à jour de la plage de l'axe x (un mois après la date du point déterminé)
+        xaxis_range_end = (point_to_add['date'] + pd.DateOffset(months=1)).strftime('%Y-%m-%d')
+    else:
+        xaxis_range_end = '2028-01-01'  # Valeur par défaut si aucun point n'est trouvé
 
     # Configuration de la figure
     fig.update_layout(
@@ -1555,7 +1752,7 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
         font_size=20,
         xaxis_title="Date",
         xaxis=dict(
-            range=['2023-12-03', '2028-01-01'],
+            range=['2023-12-03', xaxis_range_end],
             showgrid=True,
             tickformat="%Y-%m",
         ),
@@ -1564,10 +1761,79 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
             range=[3.5, 5.7],
             showgrid=True,
         ),
+        legend=dict(orientation="h", x=0, y=-0.2),
         showlegend=True,
     )
 
     return fig
+
+
+def find_latest_intersection_direct(linear_intervals, exp_intervals, prophet_intervals):
+    """
+    Trouve le point le plus tardif où il existe un y commun aux intervalles de prédiction des modèles linéaire,
+    exponentiel et Prophet.
+
+    Parameters:
+        linear_intervals (dict): Dictionnaire contenant les IP du modèle linéaire.
+        exp_intervals (dict): Dictionnaire contenant les IP du modèle exponentiel.
+        prophet_intervals (dict): Dictionnaire contenant les IP du modèle Prophet.
+
+    Returns:
+        dict: Un dictionnaire contenant la date et la valeur du point trouvée ou None si aucun point ne correspond.
+    """
+
+    # Convertir les dates de Prophet en Timestamp pour assurer la compatibilité
+    prophet_dates = pd.to_datetime(prophet_intervals['future_dates']).to_pydatetime()
+    prophet_dates = np.array([pd.Timestamp(date) for date in prophet_dates])
+
+    # Convertir les dates des modèles linéaire et exponentiel en numpy arrays
+    lin_dates = np.array(linear_intervals['future_dates'])
+    exp_dates = np.array(exp_intervals['future_dates'])
+
+    # Récupérer les valeurs des intervalles
+    lin_low = np.array(linear_intervals['ip_lower'])
+    lin_up = np.array(linear_intervals['ip_upper'])
+    exp_low = np.array(exp_intervals['ip_lower'])
+    exp_up = np.array(exp_intervals['ip_upper'])
+    prophet_low = np.array(prophet_intervals['ip_lower'])
+    prophet_up = np.array(prophet_intervals['ip_upper'])
+
+    # Filtrer les dates de Prophet pour ne garder que celles qui sont dans lin_dates et exp_dates
+    mask = np.isin(prophet_dates, lin_dates) & np.isin(prophet_dates, exp_dates)
+    prophet_dates = prophet_dates[mask]
+    prophet_low = prophet_low[mask]
+    prophet_up = prophet_up[mask]
+
+    # Vérifier les nouvelles dates communes
+    common_indices = np.intersect1d(np.intersect1d(np.where(np.in1d(lin_dates, exp_dates))[0],
+                                                   np.where(np.in1d(lin_dates, prophet_dates))[0]),
+                                    np.where(np.in1d(exp_dates, prophet_dates))[0])
+
+    if len(common_indices) == 0:
+        print("Aucune date commune trouvée entre les modèles après filtrage.")
+        return None
+
+    print(f"Nombre de dates communes trouvées : {len(common_indices)}")
+
+    # Parcourir les indices des dates communes en commençant par la plus tardive
+    for idx in reversed(common_indices):
+        # Calculer les limites inférieures et supérieures à cette date
+        lower_bound = max(lin_low[idx], exp_low[idx], prophet_low[idx])
+        upper_bound = min(lin_up[idx], exp_up[idx], prophet_up[idx])
+
+        # Afficher les détails de chaque étape pour vérifier l'intersection
+        # print(f"Date: {lin_dates[idx]}, Lower Bound: {lower_bound}, Upper Bound: {upper_bound}")
+
+        # Vérifier s'il existe une intersection (si le lower_bound est inférieur ou égal à l'upper_bound)
+        if lower_bound <= upper_bound:
+            # Retourner le point trouvé avec la valeur centrale de l'intersection
+            date = lin_dates[idx]
+            value = (lower_bound + upper_bound) / 2  # Valeur au centre de l'intersection
+            return {'date': date, 'value': value}
+
+    # Aucun point trouvé qui respecte toutes les conditions
+    print("Aucune intersection trouvée sur les dates communes.")
+    return None
 
 
 def linear_model_forecast(df_new_adjusted, fig):
@@ -1601,7 +1867,7 @@ def linear_model_forecast(df_new_adjusted, fig):
             fillcolor='rgba(255, 0, 0, 0.2)',
             mode='lines',
             line=dict(color='red', dash='dot'),
-            name='IC Student (Linéaire)',
+            name='IC Student Linéaire',
             showlegend=True,
         )
     )
@@ -1681,7 +1947,7 @@ def linear_model_forecast(df_new_adjusted, fig):
         )
     )
 
-    return fig, y_pred_linear, linear_model
+    return fig, y_pred_linear, {'ip_lower': ip_lower_future_linear, 'ip_upper': ip_upper_future_linear, 'future_dates': future_dates}
 
 
 def exponential_model_forecast(df_new_adjusted, fig):
@@ -1718,7 +1984,7 @@ def exponential_model_forecast(df_new_adjusted, fig):
             fillcolor='rgba(128, 0, 128, 0.2)',
             mode='lines',
             line=dict(color='purple', dash='dot'),
-            name='IC Student (Exponentiel)',
+            name='IC Student Exponentiel',
             showlegend=True,
         )
     )
@@ -1767,7 +2033,7 @@ def exponential_model_forecast(df_new_adjusted, fig):
         )
     )
 
-    return fig, y_pred_exponential, exponential_model
+    return fig, y_pred_exponential, {'ip_lower': ip_lower_future_exp, 'ip_upper': ip_upper_future_exp, 'future_dates': future_dates}
 
 
 def prophet_forecast(df_combined, fig):
@@ -1778,7 +2044,7 @@ def prophet_forecast(df_combined, fig):
     df_combined = df_combined.reset_index().rename(columns={'Date': 'ds', 'Bureau': 'y'})
 
     # Initialisation et ajustement du modèle Prophet
-    model = Prophet(interval_width=0.95) #, seasonality_mode='multiplicative', n_changepoints=20)
+    model = Prophet(interval_width=0.95)  #, seasonality_mode='multiplicative', n_changepoints=20)
     # model.add_seasonality(name='palier', period=200, fourier_order=5)
     model.fit(df_combined)
 
@@ -1811,4 +2077,4 @@ def prophet_forecast(df_combined, fig):
         )
     )
 
-    return fig, forecast['yhat']
+    return fig, forecast['yhat'], {'ip_lower': forecast['yhat_lower'].values, 'ip_upper': forecast['yhat_upper'].values, 'future_dates': forecast['ds'].values}
