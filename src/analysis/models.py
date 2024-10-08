@@ -36,7 +36,7 @@ def loess_regression(df):
     first_phase_data = df[df["Days"] <= threshold_day_1]
     second_phase_data = df[
         (df["Days"] > threshold_day_1) & (df["Days"] <= threshold_day_2)
-    ]
+        ]
     third_phase_data = df[df["Days"] > threshold_day_2]
 
     # Définir les valeurs à tester pour les paramètres it et delta
@@ -338,7 +338,7 @@ def regression_comparison(df):
     first_phase_data = df[df["Days"] <= threshold_day_1]
     second_phase_data = df[
         (df["Days"] > threshold_day_1) & (df["Days"] <= threshold_day_2)
-    ]
+        ]
     third_phase_data = df[df["Days"] > threshold_day_2]
 
     # Tracer les données brutes pour chaque phase
@@ -475,7 +475,7 @@ def regression_comparison(df):
             x=[annotation_day],
             y=[y_pred_global],
             mode="markers",
-            marker=dict(color="red"),
+            marker=dict(size=10, color="red"),
             name="Prévision à l'abscisse spécifiée (Globale)",
         )
     )
@@ -492,9 +492,9 @@ def regression_comparison(df):
 
     # Régressions linéaires et prévisions pour les phases 2 et 3
     for phase_data, color, phase_name in zip(
-        [second_phase_data, third_phase_data],
-        ["green", "purple"],
-        ["Phase 2", "Phase 3"],
+            [second_phase_data, third_phase_data],
+            ["green", "purple"],
+            ["Phase 2", "Phase 3"],
     ):
         slope, intercept, r_value, p_value, std_err = linregress(
             phase_data["Days"], phase_data["Bureau"]
@@ -516,21 +516,21 @@ def regression_comparison(df):
         y_pred = slope * prediction_day + intercept
         fig.add_trace(
             go.Scatter(
-                x=[annotation_day],
+                x=[annotation_day if phase_name is None else (annotation_day * 5 if phase_name == "Phase 2" else annotation_day * 10)],
                 y=[y_pred],
                 mode="markers",
-                marker=dict(color=color),
+                marker=dict(size=10, color=color),
                 name=f"Prévision à l'abscisse spécifiée ({phase_name})",
             )
         )
         fig.add_annotation(
-            x=annotation_day,
+            x=annotation_day if phase_name is None else (annotation_day * 5 if phase_name == "Phase 2" else annotation_day * 10),
             y=y_pred,
             text=f"Prévision pour la {phase_name} à 365 jours : {y_pred:.2f} mm",
             showarrow=True,
             arrowhead=2,
             ax=-50,
-            ay=50,
+            ay=-50 if phase_name == "Phase 2" else 50,
             font=dict(color=color, size=10),
         )
 
@@ -594,10 +594,10 @@ def create_features(df):
     df["lag_6"] = df["Variation Bureau"].shift(6)
     df["lag_7"] = df["Variation Bureau"].shift(7)
     df["Indoor_Tem_mean_x_Outdoor_Tem_mean"] = (
-        df["Indoor Tem(°C)_mean"] * df["Outdoor Tem(°C)_mean"]
+            df["Indoor Tem(°C)_mean"] * df["Outdoor Tem(°C)_mean"]
     )
     df["Indoor_Hum_mean_x_Outdoor_Hum_mean"] = (
-        df["Indoor Hum(%)_mean"] * df["Outdoor Hum(%)_mean"]
+            df["Indoor Hum(%)_mean"] * df["Outdoor Hum(%)_mean"]
     )
     df = df.dropna()
     return df
@@ -678,7 +678,7 @@ def train_models(X, y, model_type="Lasso"):
 
 
 def plot_feature_importance(
-    model, feature_names, title, rmse, bp_test=None, non_regression_test=None, top_n=10
+        model, feature_names, title, rmse, bp_test=None, non_regression_test=None, top_n=10
 ):
     logging.info("Dataviz: feat importance")
 
@@ -738,13 +738,13 @@ def plot_feature_importance(
 
 
 def visualize_model_results(
-    regression_model, rf_model, gb_model, X_test, y_test, delta_y
+        regression_model, rf_model, gb_model, X_test, y_test, delta_y
 ):
     # Prédictions et calcul de l'erreur pour chaque modèle
     logging.info("Regression model: RMSE")
     y_pred_regression = regression_model.predict(X_test)
     rmse_regression = (
-        np.sqrt(mean_squared_error(y_test, y_pred_regression)) / delta_y * 100
+            np.sqrt(mean_squared_error(y_test, y_pred_regression)) / delta_y * 100
     )
     logging.info("Random Forest: RMSE")
     y_pred_rf = rf_model.predict(X_test)
@@ -811,7 +811,7 @@ def visualize_model_results(
 
 
 def model_fissures_with_explanatory_vars(
-    df_paliers_old, df_paliers_new, target="Valeur moyenne"
+        df_paliers_old, df_paliers_new, target="Valeur moyenne"
 ):
     """
     Modélisation des paliers avec des variables explicatives supplémentaires basées sur la résistance des matériaux,
@@ -835,7 +835,7 @@ def model_fissures_with_explanatory_vars(
     # Calculer l'âge du bâtiment pour chaque palier
     construction_year = 1959
     df_paliers_combined["Building_Age"] = (
-        df_paliers_combined["Début"].dt.year - construction_year
+            df_paliers_combined["Début"].dt.year - construction_year
     )
     df_paliers_combined["Building_Age"] = df_paliers_combined["Building_Age"].apply(
         lambda x: max(x, 1)
@@ -847,15 +847,15 @@ def model_fissures_with_explanatory_vars(
     A_aile = b_aile * h_aile  # Aire des ailes
     d_aile = 0.15  # demi-hauteur des ailes (en mètre)
 
-    I_aile = 2 * ((b_aile * h_aile**3) / 12 + A_aile * d_aile**2)
+    I_aile = 2 * ((b_aile * h_aile ** 3) / 12 + A_aile * d_aile ** 2)
     b_central = 0.30  # largeur de la barre centrale en mètre
     h_central = 0.015  # épaisseur de la barre centrale en mètre
-    I_central = (b_central * h_central**3) / 12
+    I_central = (b_central * h_central ** 3) / 12
     df_paliers_combined["IPN_Moment_Inertia"] = I_aile + I_central
 
-    E_acier = 210 * 10**9  # module de Young de l'acier en Pascals
+    E_acier = 210 * 10 ** 9  # module de Young de l'acier en Pascals
     df_paliers_combined["IPN_Rigidite_Flexion"] = (
-        E_acier * df_paliers_combined["IPN_Moment_Inertia"]
+            E_acier * df_paliers_combined["IPN_Moment_Inertia"]
     )
     df_paliers_combined["IPN_Section"] = b_aile * h_aile + b_central * h_central
     df_paliers_combined["IPN_Stress_Factor"] = 1 / df_paliers_combined["IPN_Section"]
@@ -863,7 +863,7 @@ def model_fissures_with_explanatory_vars(
     ### Tassement différentiel ###
     installation_year_ipn = 2016
     df_paliers_combined["IPN_Age"] = (
-        df_paliers_combined["Début"].dt.year - installation_year_ipn
+            df_paliers_combined["Début"].dt.year - installation_year_ipn
     )
     df_paliers_combined["IPN_Age"] = df_paliers_combined["IPN_Age"].apply(
         lambda x: max(x, 1)
@@ -872,10 +872,10 @@ def model_fissures_with_explanatory_vars(
         df_paliers_combined["IPN_Age"]
     )
     df_paliers_combined["Tassement_Mur"] = (
-        np.log1p(df_paliers_combined["Building_Age"]) * 0.5
+            np.log1p(df_paliers_combined["Building_Age"]) * 0.5
     )
     df_paliers_combined["Tassement_Colline"] = (
-        np.log1p(df_paliers_combined["Building_Age"]) * 0.1
+            np.log1p(df_paliers_combined["Building_Age"]) * 0.1
     )
 
     ### Variables explicatives existantes ###
@@ -887,7 +887,7 @@ def model_fissures_with_explanatory_vars(
         -0.01 * df_paliers_combined["Building_Age"]
     )
     df_paliers_combined["Palier_Duration"] = (
-        df_paliers_combined["Fin"] - df_paliers_combined["Début"]
+            df_paliers_combined["Fin"] - df_paliers_combined["Début"]
     ).dt.days
 
     ### Variable cible (target) ###
@@ -950,7 +950,7 @@ def model_fissures_with_explanatory_vars(
         pipeline.fit(X_train, y_train)
         y_pred = pipeline.predict(X_test)
         rmse = (
-            np.sqrt(mean_squared_error(y_test, y_pred)) / (y.max() - y.min()) * 100
+                np.sqrt(mean_squared_error(y_test, y_pred)) / (y.max() - y.min()) * 100
         )  # RMSE en pourcentage
 
         # Extraire les importances des variables pour les modèles qui le permettent
@@ -976,7 +976,7 @@ def model_fissures_with_explanatory_vars(
             pipeline.fit(X_train, y_train)
             y_pred = pipeline.predict(X_test)
             rmse = (
-                np.sqrt(mean_squared_error(y_test, y_pred)) / (y.max() - y.min()) * 100
+                    np.sqrt(mean_squared_error(y_test, y_pred)) / (y.max() - y.min()) * 100
             )  # RMSE en pourcentage
 
             # Extraire les importances des variables pour les modèles qui le permettent
