@@ -1559,16 +1559,6 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
     yhat_prophet_df = pd.DataFrame({'yhat': yhat_prophet})
     yhat_prophet_df.index = pd.to_datetime(prophet_intervals['future_dates'])
 
-    # Vérification des premières valeurs pour s'assurer de leur intégrité
-    print("### Valeurs Prophet d'origine ###")
-    print(yhat_prophet_df.head(10))
-    print("Taille initiale de yhat_prophet :", len(yhat_prophet_df))
-
-    # Vérifier les valeurs de df_new_adjusted
-    print("\n### Valeurs de df_new_adjusted ###")
-    print(df_new_adjusted.head(10))
-    print("Taille de df_new_adjusted :", len(df_new_adjusted))
-
     # Filtrer les valeurs de Prophet en utilisant uniquement les dates de df_new_adjusted, sans altérer les valeurs
     yhat_prophet_filtered = yhat_prophet_df.loc[df_new_adjusted.index]['yhat']
 
@@ -1581,8 +1571,6 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
     print(f"RMSE Linéaire: {rmse_linear:.4f}")
     print(f"RMSE Exponentiel: {rmse_exponential:.4f}")
     print(f"RMSE Prophet: {rmse_prophet:.4f}")
-
-    ###
 
     # Localisation du point le plus tardif respectant toutes les conditions d'intervalles (IP)
     point_to_add = find_latest_intersection_direct(linear_intervals, exp_intervals, prophet_intervals)

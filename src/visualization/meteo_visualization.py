@@ -533,11 +533,12 @@ def plot_wind_speed_direction(df_cleaned):
             size=10,  # Taille des marqueurs
             opacity=(df_cleaned['Wind speed(km/h)'] - df_cleaned['Wind speed(km/h)'].min()) / (df_cleaned['Wind speed(km/h)'].max() - df_cleaned['Wind speed(km/h)'].min()) * (1 - np.exp(-0.5*df_cleaned['Wind speed(km/h)'])),
             colorbar=dict(
-                title=dict(text="Wind Speed (km/h)", side="right", font=dict(size=14)),  # Titre de la barre de couleur
-                tickvals=[1, 2, 5, 10, 20, 50],  # Valeurs correspondant à l'échelle log
-                ticktext=[" 1", " 2", " 5", " 10", " 20", " 50"],  # Textes correspondants
-                thickness=20,  # Épaisseur de la barre de couleur
-                len=0.6,  # Longueur de la barre de couleur
+                title=dict(text="Wind Speed (km/h)", side="right", font=dict(size=18)),  # Titre de la barre de couleur
+                tickvals=[1, 2, 5, 10, 15],  # Valeurs correspondant à l'échelle log
+                ticktext=[" 1", " 2", " 5", " 10", "15"],  # Textes correspondants
+                thickness=50,  # Épaisseur de la barre de couleur
+                len=0.8,  # Longueur de la barre de couleur
+                x=0.85,
             ),
         ),
     ))
@@ -560,12 +561,19 @@ def plot_wind_speed_direction(df_cleaned):
 
     # Mise à jour de la mise en page pour une meilleure lisibilité et esthétique
     fig2.update_layout(
+        width=2800,
+        height=1350,
         title=dict(
             text="Visualisation radiale de la direction et de la vitesse du vent",
             font=dict(size=26),  # Taille du titre
             # x=0.5,  # Centrer le titre
+            y=0.98
         ),
         polar=dict(
+            domain=dict(
+                x=[0, 1],
+                y=[0, 0.95]
+            ),
             radialaxis=dict(
                 range=[0, np.log1p(df_cleaned['Wind speed(km/h)'].max())],  # Échelle logarithmique pour l'axe radial
                 tickvals=np.log1p([1, 2, 5, 10, 20, 50]),  # Ticks correspondant à une échelle logarithmique
@@ -587,6 +595,7 @@ def plot_wind_speed_direction(df_cleaned):
                 gridwidth=0.7,  # Épaisseur de la grille angulaire
             ),
         ),
+        margin=dict(l=0, r=20, b=0, t=35),
         legend=dict(
             font=dict(size=12),
             orientation="h",
@@ -595,7 +604,7 @@ def plot_wind_speed_direction(df_cleaned):
             xanchor="center",
             x=0.5
         ),
-        autosize=True,
+        autosize=False,
     )
 
     return fig1, fig2
