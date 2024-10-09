@@ -1553,6 +1553,37 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
 
     fig, yhat_prophet, prophet_intervals = prophet_forecast(df_combined, fig)
 
+    # RMSE
+
+    # Assurez-vous que yhat_prophet est un DataFrame ou une Série avec les dates en index
+    yhat_prophet_df = pd.DataFrame({'yhat': yhat_prophet})
+    yhat_prophet_df.index = pd.to_datetime(prophet_intervals['future_dates'])
+
+    # Vérification des premières valeurs pour s'assurer de leur intégrité
+    print("### Valeurs Prophet d'origine ###")
+    print(yhat_prophet_df.head(10))
+    print("Taille initiale de yhat_prophet :", len(yhat_prophet_df))
+
+    # Vérifier les valeurs de df_new_adjusted
+    print("\n### Valeurs de df_new_adjusted ###")
+    print(df_new_adjusted.head(10))
+    print("Taille de df_new_adjusted :", len(df_new_adjusted))
+
+    # Filtrer les valeurs de Prophet en utilisant uniquement les dates de df_new_adjusted, sans altérer les valeurs
+    yhat_prophet_filtered = yhat_prophet_df.loc[df_new_adjusted.index]['yhat']
+
+    # Calcul des RMSE en utilisant les valeurs Prophet alignées sur les bonnes dates
+    rmse_linear = np.sqrt(mean_squared_error(df_new_adjusted["Bureau_adjusted"], y_pred_linear))
+    rmse_exponential = np.sqrt(mean_squared_error(df_new_adjusted["Bureau_adjusted"], y_pred_exponential))
+    rmse_prophet = np.sqrt(mean_squared_error(df_new_adjusted["Bureau_adjusted"], yhat_prophet_filtered))
+
+    # Affichage des RMSE
+    print(f"RMSE Linéaire: {rmse_linear:.4f}")
+    print(f"RMSE Exponentiel: {rmse_exponential:.4f}")
+    print(f"RMSE Prophet: {rmse_prophet:.4f}")
+
+    ###
+
     # Localisation du point le plus tardif respectant toutes les conditions d'intervalles (IP)
     point_to_add = find_latest_intersection_direct(linear_intervals, exp_intervals, prophet_intervals)
 
@@ -1746,9 +1777,11 @@ def dataviz_forecast(df_fissures, df_fissures_old, path_old='data/Fissures/Fissu
     else:
         xaxis_range_end = '2028-01-01'  # Valeur par défaut si aucun point n'est trouvé
 
-    # Configuration de la figure
+    # Configuration de la figure avec RMSE comme sous-titre
+    # Configuration de la figure avec les RMSE en sous-titre
     fig.update_layout(
-        title="Modèles de prévision de l'écartement",
+        title="Modèles de prévision de l'écartement<br><sup>RMSE Linéaire: {:.4f}, RMSE Exponentiel: {:.4f}, "
+              "RMSE Prophet: {:.4f}</sup>".format(rmse_linear, rmse_exponential, rmse_prophet),
         font_size=20,
         xaxis_title="Date",
         xaxis=dict(
