@@ -549,11 +549,11 @@ def plot_wind_speed_direction(df_cleaned):
     # Ajout d'une trace Scatterpolar pour les annotations des 5 valeurs les plus fortes
     fig2.add_trace(
         go.Scatterpolar(
-            r=np.log1p(top_5_speeds["Wind speed(km/h)"] - 2),  # Appliquer une échelle logarithmique pour le rayon
+            r=np.log1p(top_5_speeds["Wind speed(km/h)"]),  # Appliquer une échelle logarithmique pour le rayon
             theta=-np.degrees(top_5_speeds['Wind direction radians']),  # Convertir les radians en degrés
             mode="text",
-            text=[f"{speed:.1f} km/h<br>{date.strftime('%Y-%m-%d')}" for speed, date in zip(top_5_speeds['Wind speed(km/h)'], top_5_speeds['Time'])],  # Texte de l'annotation
-            textposition=["bottom left", "top left", "bottom left", "bottom left", "bottom left"],
+            text=[f"<br>{speed:.1f} km/h<br>{date.strftime('%Y-%m-%d')}" for speed, date in zip(top_5_speeds['Wind speed(km/h)'], top_5_speeds['Time'])],  # Texte de l'annotation
+            textposition="bottom left",
             textfont=dict(size=12, color="black"),
             showlegend=False
         )
