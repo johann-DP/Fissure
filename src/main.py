@@ -126,7 +126,7 @@ def prepare_fissure_data():
     # Générer les visualisations
     plotly_fissures = dataviz_evolution(df_fissures, df_fissures_old)
     plotly_fissures_old_new = dataviz_old_new(df_fissures, df_fissures_old)
-    second_phase_data, third_phase_data, plotly_loess = loess_regression(df_fissures)
+    second_phase_data, third_phase_data, fourth_phase_data, fifth_phase_data, sixth_phase_data, plotly_loess = loess_regression(df_fissures)
     regression_results_df, plotly_RLevol = linear_regression(df_fissures)
     plotly_LRFissure = regression_comparison(df_fissures)
     plotly_fissure_forecast = dataviz_forecast(df_fissures, df_fissures_old)
@@ -557,20 +557,20 @@ def create_dashboard(
                             )
                         ],
                     ),
-                    dcc.Tab(
-                        label="RegLin Fissure",
-                        children=[
-                            dcc.Graph(
-                                figure=fissure_figures["reglin"],
-                                style={
-                                    "width": "100%",
-                                    "height": "85vh",
-                                    "margin-top": "20px",
-                                },
-                                config={"responsive": True},
-                            )
-                        ],
-                    ),
+                    # dcc.Tab(
+                    #     label="RegLin Fissure",
+                    #     children=[
+                    #         dcc.Graph(
+                    #             figure=fissure_figures["reglin"],
+                    #             style={
+                    #                 "width": "100%",
+                    #                 "height": "85vh",
+                    #                 "margin-top": "20px",
+                    #             },
+                    #             config={"responsive": True},
+                    #         )
+                    #     ],
+                    # ),
                 ],
                 style={"backgroundColor": "#ecf0f1", "borderRadius": "5px"},
             )

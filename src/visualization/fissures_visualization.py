@@ -461,7 +461,7 @@ def preprocessing_old_new(df_fissures, df_fissures_old):
         "2024-07-05",
         "2024-08-18",
         "2024-09-29",
-        "2024-10-06"
+        "2024-10-13"
     ]
     manual_breaks_new = [
         df_combined_new.index.get_loc(

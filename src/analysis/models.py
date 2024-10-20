@@ -19,6 +19,170 @@ from statsmodels.stats.diagnostic import (het_breuschpagan,
                                           linear_harvey_collier)
 
 
+# def loess_regression(df):
+#     """
+#     Effectue une régression LOESS sur les données et affiche un graphique avec la RMSE.
+#
+#     Arguments:
+#     df : DataFrame contenant les données avec les colonnes 'Days' et 'Bureau\n(mm)'.
+#
+#     Retourne:
+#     fig : La figure plotly de la régression LOESS.
+#     second_phase_data : DataFrame contenant les données de la deuxième phase.
+#     """
+#     # Diviser les données en trois parties
+#     threshold_day_1 = 55
+#     threshold_day_2 = 210
+#     first_phase_data = df[df["Days"] <= threshold_day_1]
+#     second_phase_data = df[
+#         (df["Days"] > threshold_day_1) & (df["Days"] <= threshold_day_2)
+#         ]
+#     third_phase_data = df[df["Days"] > threshold_day_2]
+#
+#     # Définir les valeurs à tester pour les paramètres it et delta
+#     it_values = np.linspace(3, 50, 5, dtype=int)
+#     delta_values = np.linspace(0, 100, 5)
+#
+#     best_rmse = float("inf")
+#     best_params = {}
+#
+#     # Effectuer la recherche par grille
+#     for it, delta in itertools.product(it_values, delta_values):
+#         # Régression LOESS pour la première phase
+#         loess_smoothed_first = lowess(
+#             first_phase_data["Bureau"], first_phase_data["Days"], it=it, delta=delta
+#         )
+#
+#         # Régression LOESS pour la deuxième phase
+#         loess_smoothed_second = lowess(
+#             second_phase_data["Bureau"], second_phase_data["Days"], it=it, delta=delta
+#         )
+#
+#         # Régression LOESS pour la troisième phase
+#         loess_smoothed_third = lowess(
+#             third_phase_data["Bureau"], third_phase_data["Days"], it=it, delta=delta
+#         )
+#
+#         # Concaténer les prédictions des trois phases
+#         y_pred = np.concatenate(
+#             [
+#                 loess_smoothed_first[:, 1],
+#                 loess_smoothed_second[:, 1],
+#                 loess_smoothed_third[:, 1],
+#             ]
+#         )
+#
+#         # Calculer la RMSE
+#         rmse = np.sqrt(mean_squared_error(df["Bureau"], y_pred))
+#
+#         # Vérifier si cette combinaison de paramètres donne une meilleure RMSE
+#         if rmse < best_rmse:
+#             best_rmse = rmse
+#             best_params = {"it": it, "delta": delta}
+#
+#     # Régression LOESS pour la première phase avec les meilleurs paramètres
+#     loess_smoothed_first = lowess(
+#         first_phase_data["Bureau"],
+#         first_phase_data["Days"],
+#         it=best_params["it"],
+#         delta=best_params["delta"],
+#     )
+#
+#     # Régression LOESS pour la deuxième phase avec les meilleurs paramètres
+#     loess_smoothed_second = lowess(
+#         second_phase_data["Bureau"],
+#         second_phase_data["Days"],
+#         it=best_params["it"],
+#         delta=best_params["delta"],
+#     )
+#
+#     # Régression LOESS pour la troisième phase avec les meilleurs paramètres
+#     loess_smoothed_third = lowess(
+#         third_phase_data["Bureau"],
+#         third_phase_data["Days"],
+#         it=best_params["it"],
+#         delta=best_params["delta"],
+#     )
+#
+#     # Création du graphique avec Plotly
+#     fig = go.Figure()
+#
+#     # Première phase
+#     fig.add_trace(
+#         go.Scatter(
+#             x=first_phase_data["Days"],
+#             y=first_phase_data["Bureau"],
+#             mode="markers",
+#             name="Première phase",
+#             marker=dict(color="blue"),
+#         )
+#     )
+#     fig.add_trace(
+#         go.Scatter(
+#             x=first_phase_data["Days"],
+#             y=loess_smoothed_first[:, 1],
+#             mode="lines",
+#             name="LOESS Première phase",
+#             line=dict(color="red"),
+#         )
+#     )
+#
+#     # Deuxième phase
+#     fig.add_trace(
+#         go.Scatter(
+#             x=second_phase_data["Days"],
+#             y=second_phase_data["Bureau"],
+#             mode="markers",
+#             name="Deuxième phase",
+#             marker=dict(color="green"),
+#         )
+#     )
+#     fig.add_trace(
+#         go.Scatter(
+#             x=second_phase_data["Days"],
+#             y=loess_smoothed_second[:, 1],
+#             mode="lines",
+#             name="LOESS Deuxième phase",
+#             line=dict(color="orange"),
+#         )
+#     )
+#     second_phase_data["LOESS Bureau"] = loess_smoothed_second[:, 1]
+#
+#     # Troisième phase
+#     fig.add_trace(
+#         go.Scatter(
+#             x=third_phase_data["Days"],
+#             y=third_phase_data["Bureau"],
+#             mode="markers",
+#             name="Troisième phase",
+#             marker=dict(color="purple"),
+#         )
+#     )
+#     fig.add_trace(
+#         go.Scatter(
+#             x=third_phase_data["Days"],
+#             y=loess_smoothed_third[:, 1],
+#             mode="lines",
+#             name="LOESS Troisième phase",
+#             line=dict(color="brown"),
+#         )
+#     )
+#     third_phase_data["LOESS Bureau"] = loess_smoothed_third[:, 1]
+#
+#     # Mise à jour de la mise en page du graphique
+#     fig.update_layout(
+#         title="Régression LOESS pour la série chronologique Bureau pour chaque phase",
+#         font=dict(size=20),
+#         xaxis_title="Jours depuis le début de la série",
+#         yaxis_title="Bureau (mm)",
+#         legend_title_text=f"RMSE : {best_rmse:.2f} mm",
+#         autosize=True,
+#         height=None,
+#         width=None,
+#     )
+#
+#     return second_phase_data, third_phase_data, fig
+
 def loess_regression(df):
     """
     Effectue une régression LOESS sur les données et affiche un graphique avec la RMSE.
@@ -29,15 +193,32 @@ def loess_regression(df):
     Retourne:
     fig : La figure plotly de la régression LOESS.
     second_phase_data : DataFrame contenant les données de la deuxième phase.
+    third_phase_data : DataFrame contenant les données de la troisième phase.
+    fourth_phase_data : DataFrame contenant les données de la quatrième phase.
+    fifth_phase_data : DataFrame contenant les données de la cinquième phase.
+    sixth_phase_data : DataFrame contenant les données de la sixième phase.
     """
-    # Diviser les données en trois parties
-    threshold_day_1 = 55
-    threshold_day_2 = 210
+    # Diviser les données en phases
+    threshold_day_1 = 0
+    threshold_day_2 = 55
+    threshold_day_3 = 210
+    threshold_day_4 = 259
+    threshold_day_5 = 287
+
     first_phase_data = df[df["Days"] <= threshold_day_1]
     second_phase_data = df[
         (df["Days"] > threshold_day_1) & (df["Days"] <= threshold_day_2)
-        ]
-    third_phase_data = df[df["Days"] > threshold_day_2]
+    ]
+    third_phase_data = df[
+        (df["Days"] > threshold_day_2) & (df["Days"] <= threshold_day_3)
+    ]
+    fourth_phase_data = df[
+        (df["Days"] > threshold_day_3) & (df["Days"] <= threshold_day_4)
+    ]
+    fifth_phase_data = df[
+        (df["Days"] > threshold_day_4) & (df["Days"] <= threshold_day_5)
+    ]
+    sixth_phase_data = df[df["Days"] > threshold_day_5]  # Nouvelle phase ajoutée
 
     # Définir les valeurs à tester pour les paramètres it et delta
     it_values = np.linspace(3, 50, 5, dtype=int)
@@ -48,27 +229,40 @@ def loess_regression(df):
 
     # Effectuer la recherche par grille
     for it, delta in itertools.product(it_values, delta_values):
-        # Régression LOESS pour la première phase
+        # Régression LOESS pour chaque phase
         loess_smoothed_first = lowess(
             first_phase_data["Bureau"], first_phase_data["Days"], it=it, delta=delta
         )
 
-        # Régression LOESS pour la deuxième phase
         loess_smoothed_second = lowess(
             second_phase_data["Bureau"], second_phase_data["Days"], it=it, delta=delta
         )
 
-        # Régression LOESS pour la troisième phase
         loess_smoothed_third = lowess(
             third_phase_data["Bureau"], third_phase_data["Days"], it=it, delta=delta
         )
 
-        # Concaténer les prédictions des trois phases
+        loess_smoothed_fourth = lowess(
+            fourth_phase_data["Bureau"], fourth_phase_data["Days"], it=it, delta=delta
+        )
+
+        loess_smoothed_fifth = lowess(
+            fifth_phase_data["Bureau"], fifth_phase_data["Days"], it=it, delta=delta
+        )
+
+        loess_smoothed_sixth = lowess(
+            sixth_phase_data["Bureau"], sixth_phase_data["Days"], it=it, delta=delta
+        )
+
+        # Concaténer les prédictions des six phases
         y_pred = np.concatenate(
             [
                 loess_smoothed_first[:, 1],
                 loess_smoothed_second[:, 1],
                 loess_smoothed_third[:, 1],
+                loess_smoothed_fourth[:, 1],
+                loess_smoothed_fifth[:, 1],
+                loess_smoothed_sixth[:, 1],
             ]
         )
 
@@ -80,7 +274,7 @@ def loess_regression(df):
             best_rmse = rmse
             best_params = {"it": it, "delta": delta}
 
-    # Régression LOESS pour la première phase avec les meilleurs paramètres
+    # Régression LOESS finale avec les meilleurs paramètres
     loess_smoothed_first = lowess(
         first_phase_data["Bureau"],
         first_phase_data["Days"],
@@ -88,7 +282,6 @@ def loess_regression(df):
         delta=best_params["delta"],
     )
 
-    # Régression LOESS pour la deuxième phase avec les meilleurs paramètres
     loess_smoothed_second = lowess(
         second_phase_data["Bureau"],
         second_phase_data["Days"],
@@ -96,10 +289,30 @@ def loess_regression(df):
         delta=best_params["delta"],
     )
 
-    # Régression LOESS pour la troisième phase avec les meilleurs paramètres
     loess_smoothed_third = lowess(
         third_phase_data["Bureau"],
         third_phase_data["Days"],
+        it=best_params["it"],
+        delta=best_params["delta"],
+    )
+
+    loess_smoothed_fourth = lowess(
+        fourth_phase_data["Bureau"],
+        fourth_phase_data["Days"],
+        it=best_params["it"],
+        delta=best_params["delta"],
+    )
+
+    loess_smoothed_fifth = lowess(
+        fifth_phase_data["Bureau"],
+        fifth_phase_data["Days"],
+        it=best_params["it"],
+        delta=best_params["delta"],
+    )
+
+    loess_smoothed_sixth = lowess(
+        sixth_phase_data["Bureau"],
+        sixth_phase_data["Days"],
         it=best_params["it"],
         delta=best_params["delta"],
     )
@@ -169,6 +382,69 @@ def loess_regression(df):
     )
     third_phase_data["LOESS Bureau"] = loess_smoothed_third[:, 1]
 
+    # Quatrième phase
+    fig.add_trace(
+        go.Scatter(
+            x=fourth_phase_data["Days"],
+            y=fourth_phase_data["Bureau"],
+            mode="markers",
+            name="Quatrième phase",
+            marker=dict(color="cyan"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=fourth_phase_data["Days"],
+            y=loess_smoothed_fourth[:, 1],
+            mode="lines",
+            name="LOESS Quatrième phase",
+            line=dict(color="magenta"),
+        )
+    )
+    fourth_phase_data["LOESS Bureau"] = loess_smoothed_fourth[:, 1]
+
+    # Cinquième phase
+    fig.add_trace(
+        go.Scatter(
+            x=fifth_phase_data["Days"],
+            y=fifth_phase_data["Bureau"],
+            mode="markers",
+            name="Cinquième phase",
+            marker=dict(color="black"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=fifth_phase_data["Days"],
+            y=loess_smoothed_fifth[:, 1],
+            mode="lines",
+            name="LOESS Cinquième phase",
+            line=dict(color="gray"),
+        )
+    )
+    fifth_phase_data["LOESS Bureau"] = loess_smoothed_fifth[:, 1]
+
+    # Sixième phase
+    fig.add_trace(
+        go.Scatter(
+            x=sixth_phase_data["Days"],
+            y=sixth_phase_data["Bureau"],
+            mode="markers",
+            name="Sixième phase",
+            marker=dict(color="yellow"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=sixth_phase_data["Days"],
+            y=loess_smoothed_sixth[:, 1],
+            mode="lines",
+            name="LOESS Sixième phase",
+            line=dict(color="blue"),
+        )
+    )
+    sixth_phase_data["LOESS Bureau"] = loess_smoothed_sixth[:, 1]
+
     # Mise à jour de la mise en page du graphique
     fig.update_layout(
         title="Régression LOESS pour la série chronologique Bureau pour chaque phase",
@@ -181,7 +457,9 @@ def loess_regression(df):
         width=None,
     )
 
-    return second_phase_data, third_phase_data, fig
+    return second_phase_data, third_phase_data, fourth_phase_data, fifth_phase_data, sixth_phase_data, fig
+
+
 
 
 def linear_regression(df):
