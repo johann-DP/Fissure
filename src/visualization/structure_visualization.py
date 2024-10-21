@@ -723,7 +723,7 @@ def generate_building_plan():
         xy=(7.0 + largeur_ipn / 2, hauteur_ipn / 2 + 0.3),
         xytext=(13, hauteur_ipn / 2 + 0.3),
         arrowprops=dict(
-            facecolor="black",
+            facecolor="blue",
             shrink=0.05,
             width=width,
             headwidth=headwidth,
@@ -740,7 +740,7 @@ def generate_building_plan():
         xy=(8 - (taille_socle - largeur_ipn) / 2, -taille_socle / 2 - 0.3),
         xytext=(13, -taille_socle / 2 - 0.3),
         arrowprops=dict(
-            facecolor="black",
+            facecolor="blue",
             shrink=0.05,
             width=width,
             headwidth=headwidth,
@@ -748,6 +748,7 @@ def generate_building_plan():
         ),
         ha="center",
         va="center",
+        color="blue",
     )
 
     # Ajuster les axes et afficher les plans

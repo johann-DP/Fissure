@@ -991,6 +991,40 @@ def plot_scatter_plotly(
         )
     )
 
+    # Modèle PELT : Structural Break Analysis (Ruptures)
+    fig.add_trace(
+        go.Scatter(
+            x=[
+                df_combined_old.index[70],
+                df_combined_old.index[70]
+            ],
+            y=[
+                df_combined_old["model_exp"].max(),
+                df_combined_old["model_log_upper"].min()
+            ],
+            mode="lines",
+            line=dict(color="lightgreen", width=5, dash="solid"),
+            name="PELT : Structural Break Analysis",
+        )
+    )
+
+    # HMM : 2 états
+    fig.add_trace(
+        go.Scatter(
+            x=[
+                df_combined_old.index[62],
+                df_combined_old.index[62]
+            ],
+            y=[
+                df_combined_old["model_exp"].max(),
+                df_combined_old["model_log_upper"].min()
+            ],
+            mode="lines",
+            line=dict(color="lightpink", width=5, dash="solid"),
+            name="HMM à 2 états",
+        )
+    )
+
     # Travaux IPN
     fig.add_trace(
         go.Scatter(
