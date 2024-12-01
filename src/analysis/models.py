@@ -894,6 +894,7 @@ def create_features(df):
     df["lag_5"] = df["Variation Bureau"].shift(5)
     df["lag_6"] = df["Variation Bureau"].shift(6)
     df["lag_7"] = df["Variation Bureau"].shift(7)
+    df["lag_7"] = df["Variation Bureau"].shift(8)  # 2 mois de lags
     df["Indoor_Tem_mean_x_Outdoor_Tem_mean"] = (
         df["Indoor Tem(°C)_mean"] * df["Outdoor Tem(°C)_mean"]
     )
