@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
 import plotly.graph_objects as go
@@ -249,10 +250,51 @@ def plot_humidity(df_cleaned):
         font=dict(size=20),
     )
 
-    fig.update_yaxes(title_text="Humidity (%)", row=1, col=1)
-    fig.update_yaxes(title_text="Indoor Water Content (g/m³)", row=2, col=1)
-    fig.update_yaxes(title_text="Outdoor Water Content (g/m³)", row=3, col=1)
+    fig.update_yaxes(title_text="Humidity (%)", title_font=dict(size=18), row=1, col=1)
+    fig.update_yaxes(title_text="Indoor Water Content (g/m³)", title_font=dict(size=18), row=2, col=1)
+    fig.update_yaxes(title_text="Outdoor Water Content (g/m³)", title_font=dict(size=18), row=3, col=1)
     fig.update_xaxes(title_text="Time", row=3, col=1)
+
+    fig.update_layout(
+        annotations=[
+            dict(
+                x="2024-03-01",  # Date pour le 1er mars 2024
+                y=10,  # Valeur de Water Content
+                text="Chauffage \"hors gel\"",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,  # Décalage horizontal du texte par rapport à la flèche
+                ay=-80,  # Décalage vertical du texte par rapport à la flèche
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+                xref="x2", yref="y2",
+            ),
+            dict(
+                x="2024-07-01",  # Date pour le 1er juillet 2024
+                y=8,  # Valeur de Water Content
+                text="Coupure internet",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=40,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+                xref="x2", yref="y2",
+            ),
+            dict(
+                x="2024-11-21",  # Date pour le 21 novembre 2024
+                y=12,  # Valeur de Water Content
+                text="Panne fibre",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-40,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+                xref="x2", yref="y2",
+            ),
+        ]
+    )
 
     return fig
 
@@ -348,52 +390,304 @@ def plot_temperature_extremes(df_cleaned):
         width=None,
     )
 
+    fig.update_layout(
+        annotations=[
+            dict(
+                x="2024-03-01",  # Date pour le 1er mars 2024
+                y=20,  # Valeur de température
+                text="Chauffage \"hors gel\"",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,  # Décalage horizontal du texte par rapport à la flèche
+                ay=-120,  # Décalage vertical du texte par rapport à la flèche
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+            ),
+            dict(
+                x="2024-07-01",  # Date pour le 1er juillet 2024
+                y=25,  # Valeur de température
+                text="Coupure internet",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-220,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+            ),
+            dict(
+                x="2024-11-21",  # Date pour le 21 novembre 2024
+                y=22,  # Valeur de température
+                text="Panne fibre",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-100,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+            ),
+        ]
+    )
+
     return fig
 
 
 def plot_precipitation(df_cleaned):
-    fig = go.Figure()
+    # Création des subplots
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=[
+            "Moyennes hebdomadaires des précipitations (échelle normale)",
+            "Évolution des précipitations (échelle log)",
+        ],
+        vertical_spacing=0.05,
+    )
 
-    # Ajout de la trace pour les précipitations horaires avec une couleur bleue standard
+    # Calcul des moyennes hebdomadaires
+    weekly_means = (
+        df_cleaned.groupby(df_cleaned["Time"].dt.to_period("W"))["Rainfull(Day)(mm)"]
+        .mean()
+        .reset_index()
+    )
+    # Décalage de 2 jours pour la courbe du subplot du haut
+    weekly_means["Time"] = weekly_means["Time"].dt.start_time + pd.Timedelta(days=2)
+
+    # Supprimer la première moyenne hebdomadaire (semaine incomplète)
+    weekly_means = weekly_means.iloc[1:]
+
+    # Calcul des moyennes hebdomadaires sans décalage pour le subplot du bas
+    weekly_means_no_shift = (
+        df_cleaned.groupby(df_cleaned["Time"].dt.to_period("W"))["Rainfull(Day)(mm)"]
+        .mean()
+        .reset_index()
+    )
+    weekly_means_no_shift["Time"] = weekly_means_no_shift["Time"].dt.start_time
+    # Supprimer la première moyenne hebdomadaire (semaine incomplète)
+    weekly_means_no_shift = weekly_means_no_shift.iloc[1:]
+
+    # Définir les limites de l'axe des abscisses
+    x_min = df_cleaned["Time"].min()
+    x_max = df_cleaned["Time"].max()
+
+    # Subplot row=1 : Moyennes hebdomadaires en échelle normale (avec décalage)
+    fig.add_trace(
+        go.Scatter(
+            x=weekly_means["Time"],
+            y=weekly_means["Rainfull(Day)(mm)"],
+            mode="lines+markers",
+            name="Weekly Means (Normal Scale)",
+            line=dict(color="coral", width=3),
+            marker=dict(size=6),
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Subplot row=2 : Évolution des précipitations en échelle logarithmique
     fig.add_trace(
         go.Scatter(
             x=df_cleaned["Time"],
             y=df_cleaned["Rainfull(Hour)(mm)"],
             mode="lines",
             name="Rainfall per Hour",
-            line=dict(width=1, color="blue"),
+            line=dict(width=1, color="rgba(0, 0, 255, 0.5)"),
             opacity=0.5,
-        )
+        ),
+        row=2,
+        col=1,
     )
 
-    # Ajout de la trace pour les précipitations journalières avec une couleur bleu foncé
     fig.add_trace(
         go.Scatter(
             x=df_cleaned["Time"],
             y=df_cleaned["Rainfull(Day)(mm)"],
             mode="lines",
             name="Rainfall per Day",
-            line=dict(width=2, color="darkblue"),
-        )
+            line=dict(width=2, color="rgba(0, 0, 139, 0.5)"),
+        ),
+        row=2,
+        col=1,
     )
 
+    # Moyennes hebdomadaires pour le subplot en échelle logarithmique secondaire (sans décalage)
+    for i in range(len(weekly_means_no_shift) - 1):
+        # Ligne horizontale pour une semaine (échelle logarithmique secondaire)
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    weekly_means_no_shift["Time"].iloc[i],
+                    weekly_means_no_shift["Time"].iloc[i + 1],
+                ],
+                y=[
+                    weekly_means_no_shift["Rainfull(Day)(mm)"].iloc[i],
+                    weekly_means_no_shift["Rainfull(Day)(mm)"].iloc[i],
+                ],
+                mode="lines",
+                line=dict(color="coral", width=3),
+                name="Weekly Mean (Log Scale)",
+                showlegend=(i == 0),
+                yaxis="y3",  # Associer à l'échelle secondaire à droite
+            ),
+            row=2,
+            col=1,
+        )
+
+        # Ligne verticale pour relier les paliers (échelle logarithmique secondaire)
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    weekly_means_no_shift["Time"].iloc[i + 1],
+                    weekly_means_no_shift["Time"].iloc[i + 1],
+                ],
+                y=[
+                    weekly_means_no_shift["Rainfull(Day)(mm)"].iloc[i],
+                    weekly_means_no_shift["Rainfull(Day)(mm)"].iloc[i + 1],
+                ],
+                mode="lines",
+                line=dict(color="coral", width=3, dash="dot"),
+                showlegend=False,
+                yaxis="y3",  # Associer à l'échelle secondaire à droite
+            ),
+            row=2,
+            col=1,
+        )
+
+    # Ajout des shapes (bandes gris clair) pour chaque subplot
+    months = pd.date_range(start=x_min, end=x_max, freq="MS")
+    shapes = []
+    for i in range(0, len(months) - 1, 2):  # Un mois sur deux
+        # Bandes pour le subplot du haut
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=months[i],
+                x1=months[i + 1],
+                y0=0.525,  # Limite basse du subplot du haut
+                y1=1.0,  # Limite haute du subplot du haut
+                fillcolor="rgba(211, 211, 211, 0.3)",
+                line=dict(width=0),
+                layer="below",
+            )
+        )
+        # Bandes pour le subplot du bas
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=months[i],
+                x1=months[i + 1],
+                y0=0.0,  # Limite basse du subplot du bas
+                y1=0.472,  # Limite haute du subplot du bas
+                fillcolor="rgba(211, 211, 211, 0.3)",
+                line=dict(width=0),
+                layer="below",
+            )
+        )
+
+    # Mise en page finale
     fig.update_layout(
-        title="Évolution des précipitations (échelle log)",
+        shapes=shapes,
+        title="Analyse des précipitations hebdomadaires et journalières",
         font=dict(size=20),
-        xaxis_title="Time",
-        yaxis_title="Rainfall (mm)",
-        yaxis_type="log",
+        xaxis=dict(
+            range=[x_min, x_max],
+        ),
+        xaxis2=dict(title="Time", range=[x_min, x_max]),  # Titre uniquement sur le subplot du bas
+        yaxis=dict(title="Rainfall (mm)", type="linear"),
+        yaxis2=dict(title="Rainfall (mm)", type="log"),
+        yaxis3=dict(
+            title="Logarithmic Scale (Coral)",
+            type="log",
+            overlaying="y2",
+            side="right",
+        ),
         legend=dict(font=dict(size=10)),
         autosize=True,
+        margin=dict(t=100, l=80),  # Ajuster les marges pour aligner le titre et les sous-titres
+    )
+
+    # Aligner sur les sous-titres à gauche
+    fig.update_annotations(dict(xanchor="left", x=0.015))
+
+    # Ajouter l'annotation pour "Panne fibre" sans remplacer les sous-titres
+    fig.add_annotation(
+        x="2024-11-21",  # Date pour le 21 novembre 2024
+        y=np.log10(10),  # Valeur arbitraire de précipitation
+        text="Panne fibre",
+        showarrow=True,
+        arrowhead=2,
+        ax=0,
+        ay=-80,
+        font=dict(size=14, color="gray"),
+        arrowcolor="gray",
+        align="center",  # Centrer le texte
+        xanchor="center",  # Centrer par rapport à x
+        xref="x",  # Référencer x en coordonnées données
+        yref="y2",  # Référencer y dans le subplot en échelle log
     )
 
     return fig
 
 
 def plot_wind_speed_direction(df_cleaned):
-    # Graphique pour la vitesse du vent
-    fig1 = go.Figure()
-    fig1.add_trace(
+    # Création des subplots
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=[
+            "Moyennes hebdomadaires de la vitesse du vent (échelle normale)",
+            "Évolution de la vitesse du vent (échelle log)",
+        ],
+        vertical_spacing=0.05,
+    )
+
+    # Calcul des moyennes hebdomadaires
+    weekly_means = (
+        df_cleaned.groupby(df_cleaned["Time"].dt.to_period("W"))["Wind speed(km/h)"]
+        .mean()
+        .reset_index()
+    )
+    # Décalage de 2 jours pour la courbe purple uniquement dans le subplot du haut
+    weekly_means["Time"] = weekly_means["Time"].dt.start_time + pd.Timedelta(days=2)
+
+    # Supprimer la première moyenne hebdomadaire (semaine incomplète)
+    weekly_means = weekly_means.iloc[1:]
+
+    # Calcul des moyennes hebdomadaires sans décalage
+    weekly_means_no_shift = (
+        df_cleaned.groupby(df_cleaned["Time"].dt.to_period("W"))["Wind speed(km/h)"]
+        .mean()
+        .reset_index()
+    )
+    weekly_means_no_shift["Time"] = weekly_means_no_shift["Time"].dt.start_time
+    # Supprimer la première moyenne hebdomadaire (semaine incomplète)
+    weekly_means_no_shift = weekly_means_no_shift.iloc[1:]
+
+    # Définir les limites de l'axe des abscisses
+    x_min = df_cleaned["Time"].min()
+    x_max = df_cleaned["Time"].max()
+
+    # Subplot row=1 : Moyennes hebdomadaires en échelle normale (avec décalage)
+    fig.add_trace(
+        go.Scatter(
+            x=weekly_means["Time"],
+            y=weekly_means["Wind speed(km/h)"],
+            mode="lines+markers",
+            name="Weekly Means (Normal Scale)",
+            line=dict(color="purple", width=3),
+            marker=dict(size=6),
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Subplot row=2 : Évolution de la vitesse du vent en échelle logarithmique
+    fig.add_trace(
         go.Scatter(
             x=df_cleaned["Time"],
             y=df_cleaned["Wind speed(km/h)"],
@@ -401,9 +695,12 @@ def plot_wind_speed_direction(df_cleaned):
             name="Wind Speed",
             line=dict(color="red", width=1),
             opacity=0.15,
-        )
+        ),
+        row=2,
+        col=1,
     )
-    fig1.add_trace(
+
+    fig.add_trace(
         go.Scatter(
             x=df_cleaned["Time"],
             y=df_cleaned["Wind speed(km/h) MA"],
@@ -411,16 +708,145 @@ def plot_wind_speed_direction(df_cleaned):
             name="Wind Speed MA",
             line=dict(color="red", width=2),
             opacity=0.5,
-        )
+        ),
+        row=2,
+        col=1,
     )
 
-    fig1.update_layout(
-        title="Évolution de la vitesse du vent",
+    # Moyennes hebdomadaires pour le subplot en échelle logarithmique secondaire (sans décalage)
+    for i in range(len(weekly_means_no_shift) - 1):
+        # Ligne horizontale pour une semaine (échelle logarithmique secondaire)
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    weekly_means_no_shift["Time"].iloc[i],
+                    weekly_means_no_shift["Time"].iloc[i + 1],
+                ],
+                y=[
+                    weekly_means_no_shift["Wind speed(km/h)"].iloc[i],
+                    weekly_means_no_shift["Wind speed(km/h)"].iloc[i],
+                ],
+                mode="lines",
+                line=dict(color="purple", width=3),
+                name="Weekly Mean (Log Scale)",
+                showlegend=(i == 0),
+                yaxis="y3",  # Associer à l'échelle secondaire à droite
+            ),
+            row=2,
+            col=1,
+        )
+
+        # Ligne verticale pour relier les paliers (échelle logarithmique secondaire)
+        fig.add_trace(
+            go.Scatter(
+                x=[
+                    weekly_means_no_shift["Time"].iloc[i + 1],
+                    weekly_means_no_shift["Time"].iloc[i + 1],
+                ],
+                y=[
+                    weekly_means_no_shift["Wind speed(km/h)"].iloc[i],
+                    weekly_means_no_shift["Wind speed(km/h)"].iloc[i + 1],
+                ],
+                mode="lines",
+                line=dict(color="purple", width=3, dash="dot"),
+                showlegend=False,
+                yaxis="y3",  # Associer à l'échelle secondaire à droite
+            ),
+            row=2,
+            col=1,
+        )
+
+    # Ajout des shapes (bandes gris clair) pour chaque subplot
+    months = pd.date_range(start=x_min, end=x_max, freq="MS")
+    shapes = []
+    for i in range(0, len(months) - 1, 2):  # Un mois sur deux
+        # Bandes pour le subplot du haut
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=months[i],
+                x1=months[i + 1],
+                y0=0.525,  # Limite basse du subplot du haut
+                y1=1.0,  # Limite haute du subplot du haut
+                fillcolor="rgba(211, 211, 211, 0.3)",
+                line=dict(width=0),
+                layer="below",
+            )
+        )
+        # Bandes pour le subplot du bas
+        shapes.append(
+            dict(
+                type="rect",
+                xref="x",
+                yref="paper",
+                x0=months[i],
+                x1=months[i + 1],
+                y0=0.0,  # Limite basse du subplot du bas
+                y1=0.472,  # Limite haute du subplot du bas
+                fillcolor="rgba(211, 211, 211, 0.3)",
+                line=dict(width=0),
+                layer="below",
+            )
+        )
+
+    # Mise en page finale
+    fig.update_layout(
+        shapes=shapes,
+        title="Analyse des vitesses hebdomadaires et journalières du vent",
         font=dict(size=20),
-        xaxis_title="Time",
-        yaxis_title="Wind Speed (km/h)",
+        xaxis=dict(
+            range=[x_min, x_max],
+        ),
+        xaxis2=dict(title="Time", range=[x_min, x_max]),  # Titre uniquement sur le subplot du bas
+        yaxis=dict(title="Wind Speed (km/h)", type="linear"),
+        yaxis2=dict(title="Wind Speed (km/h)", type="log"),
+        yaxis3=dict(
+            title="Logarithmic Scale (Purple)",
+            type="log",
+            overlaying="y2",
+            side="right",
+        ),
         legend=dict(font=dict(size=10)),
         autosize=True,
+        margin=dict(t=100, l=80),  # Ajuster les marges pour aligner le titre et les sous-titres
+    )
+
+    # Aligner sur les sous-titres à gauche
+    fig.update_annotations(dict(xanchor="left", x=0.015))
+
+    # Ajouter les annotations pour "Coupure internet" et "Panne fibre" sans remplacer les sous-titres
+    fig.add_annotation(
+        x="2024-07-01",  # Date pour le 1er juillet 2024
+        y=np.log10(5),  # Valeur logarithmique de la vitesse
+        text="Coupure internet",
+        showarrow=True,
+        arrowhead=2,
+        ax=0,
+        ay=-40,
+        font=dict(size=14, color="gray"),
+        arrowcolor="gray",
+        align="center",  # Centrer le texte
+        xanchor="center",  # Centrer par rapport à x
+        xref="x",  # Référencer x en coordonnées données
+        yref="y2",  # Référencer y dans le subplot en échelle log
+    )
+
+    fig.add_annotation(
+        x="2024-11-21",  # Date pour le 21 novembre 2024
+        y=np.log10(7),  # Valeur logarithmique de la vitesse
+        text="Panne fibre",
+        showarrow=True,
+        arrowhead=2,
+        ax=0,
+        ay=-80,
+        font=dict(size=14, color="gray"),
+        arrowcolor="gray",
+        align="center",  # Centrer le texte
+        xanchor="center",  # Centrer par rapport à x
+        xref="x",  # Référencer x en coordonnées données
+        yref="y2",  # Référencer y dans le subplot en échelle log
     )
 
     # # Graphique pour la direction du vent avec un subplot supplémentaire pour l'angle
@@ -862,7 +1288,7 @@ def plot_wind_speed_direction(df_cleaned):
         font=dict(size=16),  # Taille du texte principal
     )
 
-    return fig1, fig2
+    return fig, fig2
 
 
 def plot_light_uv(df_cleaned):
@@ -1018,6 +1444,44 @@ def plot_moving_averages(df_cleaned):
         autosize=True,
         height=None,
         width=None,
+    )
+
+    fig.update_layout(
+        annotations=[
+            dict(
+                x="2024-03-01",  # Date pour le 1er mars 2024
+                y=20,  # Valeur de température
+                text="Chauffage \"hors gel\"",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,  # Décalage horizontal du texte par rapport à la flèche
+                ay=-120,  # Décalage vertical du texte par rapport à la flèche
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+            ),
+            dict(
+                x="2024-07-01",  # Date pour le 1er juillet 2024
+                y=25,  # Valeur de température
+                text="Coupure internet",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-180,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+            ),
+            dict(
+                x="2024-11-21",  # Date pour le 21 novembre 2024
+                y=22,  # Valeur de température
+                text="Panne fibre",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-100,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+            ),
+        ]
     )
 
     return fig
