@@ -405,7 +405,7 @@ def plot_temperature_extremes(df_cleaned):
             ),
             dict(
                 x="2024-07-01",  # Date pour le 1er juillet 2024
-                y=25,  # Valeur de température
+                y=27,  # Valeur de température
                 text="Coupure internet",
                 showarrow=True,
                 arrowhead=2,
@@ -972,7 +972,7 @@ def plot_wind_speed_direction(df_cleaned):
                     df_cleaned["Wind speed(km/h)"].max()
                     - df_cleaned["Wind speed(km/h)"].min()
                 )
-                * (1 - np.exp(-0.5 * df_cleaned["Wind speed(km/h)"])),
+                * (1 - np.exp(-0.6 * df_cleaned["Wind speed(km/h)"])),
                 colorbar=dict(
                     title=dict(
                         text="Wind Speed (km/h)", side="right", font=dict(size=18)
@@ -1388,6 +1388,35 @@ def plot_light_uv(df_cleaned):
     fig.update_yaxes(title_text="UV Rating", row=2, col=1)
     fig.update_yaxes(title_text="Ratio Difference", row=3, col=1)
     fig.update_xaxes(title_text="Time", row=3, col=1)
+
+    fig.update_layout(
+        annotations=[
+            dict(
+                x="2024-07-01",  # Date pour le 1er juillet 2024
+                y=8,  # Valeur d'UV Rating
+                text="Coupure internet",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-70,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+                xref="x2", yref="y2",
+            ),
+            dict(
+                x="2024-11-21",  # Date pour le 21 novembre 2024
+                y=1,  # Valeur d'UV Rating
+                text="Panne fibre",
+                showarrow=True,
+                arrowhead=2,
+                ax=0,
+                ay=-50,
+                font=dict(size=14, color="gray"),
+                arrowcolor="gray",
+                xref="x2", yref="y2",
+            ),
+        ]
+    )
 
     return fig
 

@@ -14,6 +14,7 @@ def load_and_concat_excel_files(data_dir):
 
 def clean_data(df_combined):
     df_cleaned = df_combined.dropna(axis=1, how="all")
+    df_cleaned = df_cleaned.loc[:, ~df_cleaned.columns.str.startswith('CH')]
     df_cleaned["Time"] = pd.to_datetime(df_cleaned["Time"])
     df_cleaned = df_cleaned[df_cleaned["Time"] >= "2023-12-17 16:51:21+08:00"]
 
