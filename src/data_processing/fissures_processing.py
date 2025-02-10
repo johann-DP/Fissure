@@ -11,7 +11,9 @@ def chargement_donnees(chemin):
         "Mur extérieur",
         "Variation Bureau",
         "Variation Mur",
+        "Mur route"
     ]
+    df = df[df.columns[:-1]]
     df["Date"] = pd.to_datetime(df["Date"])
     df.sort_values("Date", inplace=True)
     df["Days"] = (df["Date"] - df["Date"].min()).dt.days

@@ -1,0 +1,11 @@
+Feature,Coefficient
+Outdoor Hum.Min(%)_lag21,-0.0029936596379899405
+Wind speed(Hour)(km/h)_lag212,-0.002989727834632965
+Rainfull(Day)(mm)_lag300,-0.002871838639577309
+Rainfull(Day)(mm)_lag296,0.0026017339393834818
+Wind speed(Hour)(km/h)_lag206,-0.0009043243832591789
+Wind speed(Hour)(km/h)_lag205,0.0
+Rainfull(Day)(mm)_lag298,-0.0
+Rainfull(Day)(mm)_lag297,0.0
+Rainfull(Day)(mm)_lag299,-0.0
+Rainfull(Hour)(mm)_lag302,-0.0
