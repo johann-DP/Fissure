@@ -287,11 +287,8 @@ def create_fig_hours(min_times, max_times, nbinsx_hours):
     """
     Crée la figure des heures des extrema journaliers (onglet 3), en utilisant
     exclusivement les timestamps corrigés (hors 0 h/24 h).
-    Les deux tableaux d’entrée sont :
-      - min_times : tableau ou liste d’horodatages (float en heures décimales ou pd.Timestamp)
-                    correspondant à l’heure des minima quotidiens (les valeurs doivent déjà
-                    être filtrées pour ne pas contenir de 00:00 ou 24:00).
-      - max_times : idem pour les maxima quotidiens.
+    min_times et max_times doivent être des np.ndarray de float (heures décimales),
+    afin que get_primary_peak_hours puisse y appliquer np.isnan() sans erreur.
     """
 
     import numpy as np
@@ -301,14 +298,17 @@ def create_fig_hours(min_times, max_times, nbinsx_hours):
     fig = go.Figure()
 
     # 1) Conversion éventuelle de min_times/max_times en heures décimales
+    #    Si l'argument est déjà un np.ndarray, on le renvoie tel quel.
     def to_decimal_hours(arr):
-        # Si les éléments sont déjà des floats, on les retourne tels quels
-        if isinstance(arr[0], float) or isinstance(arr[0], np.floating):
-            return arr.tolist()
-        # Sinon, on suppose qu’il s’agit de pd.Timestamp
-        return [t.hour + t.minute / 60 + t.second / 3600 for t in arr]
+        if isinstance(arr, np.ndarray):
+            return arr
+        # Si c'est une liste de floats, on la convertit en np.array
+        if isinstance(arr, list) and isinstance(arr[0], float):
+            return np.array(arr, dtype=float)
+        # Sinon, on suppose que ce sont des pd.Timestamp
+        return np.array([t.hour + t.minute / 60 + t.second / 3600 for t in arr], dtype=float)
 
-    # Convertir en float (heures décimales) si besoin
+    # Convertir en np.ndarray (heures décimales) si besoin
     hrs_min = to_decimal_hours(min_times)
     hrs_max = to_decimal_hours(max_times)
 
@@ -344,7 +344,7 @@ def create_fig_hours(min_times, max_times, nbinsx_hours):
 
     # 3) Histogrammes des heures MIN et MAX (densité)
     fig.add_trace(go.Histogram(
-        x=[h for h in hrs_min if not np.isnan(h)],
+        x=hrs_min[~np.isnan(hrs_min)],
         nbinsx=nbinsx_hours,
         histnorm='probability density',
         marker_color='rgba(0,0,255,0.8)',
@@ -352,7 +352,7 @@ def create_fig_hours(min_times, max_times, nbinsx_hours):
         hovertemplate="Heure: %{x:.2f} h<br>Densité: %{y:.3f}"
     ))
     fig.add_trace(go.Histogram(
-        x=[h for h in hrs_max if not np.isnan(h)],
+        x=hrs_max[~np.isnan(hrs_max)],
         nbinsx=nbinsx_hours,
         histnorm='probability density',
         marker_color='rgba(255,0,0,0.8)',
@@ -372,8 +372,8 @@ def create_fig_hours(min_times, max_times, nbinsx_hours):
 
     # 4) Ajout des KDE si données suffisantes
     from scipy.stats import gaussian_kde
-    valid_min = np.array([h for h in hrs_min if not np.isnan(h)])
-    valid_max = np.array([h for h in hrs_max if not np.isnan(h)])
+    valid_min = hrs_min[~np.isnan(hrs_min)]
+    valid_max = hrs_max[~np.isnan(hrs_max)]
     if len(valid_min) > 1 and len(valid_max) > 1:
         kde_hours_min = gaussian_kde(valid_min)
         kde_hours_max = gaussian_kde(valid_max)

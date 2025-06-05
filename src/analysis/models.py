@@ -855,7 +855,7 @@ def select_weekly_variables(df_cleaned):
     Selects and returns the weekly variables from the cleaned dataframe.
 
     Parameters:
-    df_cleaned (DataFrame): The cleaned dataframe with both daily and weekly data.
+    df_cleaned (DataFrame): The cleaned dataframe with both daily and weekly data_route.
 
     Returns:
     DataFrame: A dataframe containing only the weekly variables.
@@ -923,7 +923,7 @@ def regression_model(X_train, y_train, model_type="Ridge"):
     """Create and train a Ridge or Lasso regression model"""
     logging.info(f"{model_type} regression")
 
-    # Standardize the data
+    # Standardize the data_route
     scaler = StandardScaler().fit(X_train)
     X_train_scaled = scaler.transform(X_train)
     logging.info("X: scaled")
@@ -941,7 +941,7 @@ def regression_model(X_train, y_train, model_type="Ridge"):
     # Create a pipeline with the scaler and the regression model
     regression_pipeline = Pipeline([("scaler", scaler), ("regression", model)])
 
-    # Fit the pipeline on the training data
+    # Fit the pipeline on the training data_route
     regression_pipeline.fit(X_train, y_train)
     logging.info(f"{model_type} regression: fitted")
 
