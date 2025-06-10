@@ -39,38 +39,34 @@ def filter_constant_plateaus(data: List[Tuple[pd.Timestamp, float]]) -> List[Tup
 
 def create_fig_main(df, daily_stats, global_min, global_max, colors):
     fig = go.Figure()
-    # # Nuage de points complet des mesures (transparence pour densité)
-    # fig.add_trace(go.Scatter(
-    #     x=df['timestamp'], y=df['inch'],
-    #     mode='markers',
-    #     marker=dict(color='black', size=5, opacity=0.1),
-    #     name='Mesures',
-    #     customdata=np.stack([df['mm']], axis=-1),
-    #     hovertemplate='Time: %{x}<br>Inclinaison: %{y:.3f} inch<br>%{customdata[0]:.1f} mm'
-    # ))
-
-    # 1) Préparer la liste de tuples (timestamp, inch) triée :
-    data_series = list(
-        zip(df["timestamp"].tolist(), df["inch"].tolist())
-    )
-
-    # 2) Filtrer pour ne garder que les débuts/fins de palier constant
-    filtered_series = filter_constant_plateaus(data_series)
-    # Séparer en deux listes pour Plotly
-    ts_filtered = [t for t, _ in filtered_series]
-    inch_filtered = [v for _, v in filtered_series]
-
-    # 3) Tracer la série filtrée
+    # Correction 1 : Exclure les mesures à 00:00 et 24:00 des calculs d'extrêmes quotidiens
+    daily_stats = daily_stats.copy()
+    for idx, row in daily_stats.iterrows():
+        mask = (df['timestamp'] > row['day_start']) & (df['timestamp'] < row['day_end'])
+        if mask.any():
+            daily_stats.at[idx, 'min'] = df.loc[mask, 'inch'].min()
+            daily_stats.at[idx, 'max'] = df.loc[mask, 'inch'].max()
+    # Correction 2 : Réduire les points affichés aux seuls changements de valeur (début/fin de plateau)
+    if not df.empty:
+        if len(df) > 1:
+            changes = df['inch'].values[1:] != df['inch'].values[:-1]
+            mask1 = np.concatenate(([True], changes))
+            mask2 = np.concatenate((changes, [True]))
+            mask_points = mask1 | mask2
+        else:
+            mask_points = np.array([True], dtype=bool)
+        df_points = df.iloc[mask_points]
+    else:
+        df_points = df
+    # Nuage de points des mesures (points de changement, transparence pour densité)
     fig.add_trace(go.Scatter(
-        x=ts_filtered,
-        y=inch_filtered,
+        x=df_points['timestamp'], y=df_points['inch'],
         mode='markers',
         marker=dict(color='black', size=5, opacity=0.1),
-        name="Mesures",
-        customdata=np.stack([df['mm']], axis=-1),
+        name='Mesures',
+        customdata=np.stack([df_points['mm']], axis=-1),
         hovertemplate='Time: %{x}<br>Inclinaison: %{y:.3f} inch<br>%{customdata[0]:.1f} mm'
     ))
-
     # Lignes horizontales pour min, max, mean, median de chaque jour + trace de ces stats
     for stat in ['min', 'max', 'mean', 'median']:
         for _, row in daily_stats.iterrows():

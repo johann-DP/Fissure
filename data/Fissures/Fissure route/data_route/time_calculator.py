@@ -5,132 +5,75 @@ import numpy as np
 import pandas as pd
 
 
-def calculate_central_times(df, daily_stats):
+def calculate_central_times(df, daily_stats=None):
     """
-    (Optionnel – si vous utilisez encore ici le half_hour)
-    Ce code n’est plus nécessaire pour l’onglet 2/3,
-    puisque l’on utilise compute_daily_extrema_timestamps à la place.
+    Renvoie deux arrays (min_times, max_times) en heures décimales, basés sur
+    compute_daily_extrema_timestamps(df). daily_stats est ignoré.
     """
-    unique_days = sorted(daily_stats["day"].unique())
-    min_times = []
-    max_times = []
-    tol = 1e-4
 
-    for day in unique_days:
-        day_df = df[df["day"] == day]
-        local_min = daily_stats[daily_stats["day"] == day]["min"].iloc[0]
-        local_max = daily_stats[daily_stats["day"] == day]["max"].iloc[0]
+    daily_ext = compute_daily_extrema_timestamps(df)
+    # Trier par jour pour l’ordre
+    daily_ext = daily_ext.sort_values("day")
 
-        first_ts = day_df["timestamp"].min()
-        last_ts = day_df["timestamp"].max()
-        day_df_filtered = day_df[
-            (day_df["timestamp"] > first_ts) & (day_df["timestamp"] < last_ts)
-        ]
+    # Convertir timestamps en heures décimales
+    to_hours = lambda ts: ts.dt.hour + ts.dt.minute / 60 + ts.dt.second / 3600
 
-        plateau_min_all = day_df_filtered[np.abs(day_df_filtered["inch"] - local_min) < tol]
-        plateau_max_all = day_df_filtered[np.abs(day_df_filtered["inch"] - local_max) < tol]
+    max_times = to_hours(daily_ext["time_max"])
+    min_times = to_hours(daily_ext["time_min"])
 
-        plateau_min = plateau_min_all.copy()
-        plateau_max = plateau_max_all.copy()
-
-        if (not plateau_min_all.empty) and (not plateau_max_all.empty):
-            ts_min_first = plateau_min_all["timestamp"].min()
-            ts_max_first = plateau_max_all["timestamp"].min()
-
-            if ts_min_first < ts_max_first:
-                plateau_min = plateau_min_all[plateau_min_all["timestamp"] > ts_max_first]
-            else:
-                plateau_min = plateau_min_all
-
-            if ts_max_first > ts_min_first:
-                plateau_max = plateau_max_all[plateau_max_all["timestamp"] < ts_min_first]
-            else:
-                plateau_max = plateau_max_all
-
-        if not plateau_min.empty:
-            times_min = (
-                plateau_min["timestamp"].dt.hour
-                + plateau_min["timestamp"].dt.minute / 60
-                + plateau_min["timestamp"].dt.second / 3600
-            )
-            central_min = (times_min.min() + times_min.max()) / 2
-        else:
-            central_min = np.nan
-
-        if not plateau_max.empty:
-            times_max = (
-                plateau_max["timestamp"].dt.hour
-                + plateau_max["timestamp"].dt.minute / 60
-                + plateau_max["timestamp"].dt.second / 3600
-            )
-            central_max = (times_max.min() + times_max.max()) / 2
-        else:
-            central_max = np.nan
-
-        min_times.append(central_min)
-        max_times.append(central_max)
-
-    return np.array(min_times, dtype=np.float64), np.array(max_times, dtype=np.float64)
+    return np.array(min_times, dtype=float), np.array(max_times, dtype=float)
 
 
 def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Pour chaque jour complet présent dans df, identifie :
-      - le MAXIMUM absolu de la journée, à condition qu’il ne soit pas à la toute
-        dernière mesure (pas à 24 h);
-      - le MINIMUM absolu de la journée, à condition qu’il ne soit pas à la toute
-        première mesure (pas à 0 h) et qu’il survienne après ce maximum.
-
-    df doit comporter au minimum les colonnes suivantes :
-      - 'timestamp' (datetime64[ns]) trié par ordre chronologique,
-      - 'inch'      (float) : valeur mesurée de la fissure.
-
-    Retourne un DataFrame à colonnes :
-      [ 'day',          # date (YYYY-MM-DD) de la journée
-        'time_max',     # horodatage exact (datetime) de l’occurrence du max absolu
-        'val_max',      # valeur de 'inch' au maximum absolu
-        'time_min',     # horodatage exact (datetime) de l’occurrence du min absolu
-        'val_min' ]     # valeur de 'inch' au minimum absolu
-    Aucun jour valide ne génère NaN, car on suppose qu’il existe toujours
-    au moins deux points « intérieurs » (hors 0 h/24 h).
+    Retourne pour chaque jour les extrema absolus hors 00:00 et 24:00 :
+      - 'day'     : date (YYYY-MM-DD)
+      - 'time_max': timestamp du premier point du plateau de max absolu
+      - 'val_max' : valeur inch du max
+      - 'time_min': timestamp du premier point du plateau de min absolu (après le max)
+      - 'val_min' : valeur inch du min
     """
-    df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df = df.sort_values("timestamp")
-    df["day"] = df["timestamp"].dt.date
 
-    extrema_list = []
-    for day, group in df.groupby("day"):
-        if len(group) < 2:
-            continue
-        first_ts = group["timestamp"].min()
-        last_ts = group["timestamp"].max()
-        inner = group[(group["timestamp"] > first_ts) & (group["timestamp"] < last_ts)]
-        if inner.empty:
-            continue
+    df2 = df.copy()
+    df2["timestamp"] = pd.to_datetime(df2["timestamp"])
+    df2 = df2.sort_values("timestamp")
+    df2["day"] = df2["timestamp"].dt.date
 
-        idx_max = inner["inch"].idxmax()
-        ts_max = inner.loc[idx_max, "timestamp"]
-        val_max = inner.loc[idx_max, "inch"]
+    tol = 1e-4
+    records = []
 
-        after_max = inner[inner["timestamp"] > ts_max]
-        if after_max.empty:
+    for day, grp in df2.groupby("day"):
+        if len(grp) < 3:
+            continue  # pas assez de points intérieurs
+
+        t0 = grp["timestamp"].iloc[0]
+        t1 = grp["timestamp"].iloc[-1]
+        interior = grp[(grp["timestamp"] > t0) & (grp["timestamp"] < t1)]
+        if len(interior) < 2:
             continue
 
-        idx_min = after_max["inch"].idxmin()
-        ts_min = after_max.loc[idx_min, "timestamp"]
-        val_min = after_max.loc[idx_min, "inch"]
+        # --- max absolu intérieur ---
+        val_max = interior["inch"].max()
+        plateau_max = interior[np.abs(interior["inch"] - val_max) < tol]
+        time_max = plateau_max["timestamp"].iloc[0]
 
-        if val_max > val_min:
-            extrema_list.append({
-                "day": day,
-                "time_max": ts_max,
-                "val_max": val_max,
-                "time_min": ts_min,
-                "val_min": val_min
-            })
+        # --- min absolu dans la phase décroissante ---
+        aft = interior[interior["timestamp"] > time_max]
+        if aft.empty:
+            continue
+        val_min = aft["inch"].min()
+        plateau_min = aft[np.abs(aft["inch"] - val_min) < tol]
+        time_min = plateau_min["timestamp"].iloc[0]
 
-    return pd.DataFrame(extrema_list)
+        records.append({
+            "day":      day,
+            "time_max": time_max,
+            "val_max":  val_max,
+            "time_min": time_min,
+            "val_min":  val_min
+        })
+
+    return pd.DataFrame(records)
 
 
 def get_extreme_half_hours(df_day_half_mean, df_day_half_median):
