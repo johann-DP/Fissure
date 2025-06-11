@@ -128,13 +128,14 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
     # Lignes horizontales pour min, max, mean, median de chaque jour + trace de ces stats
     for stat in ['min', 'max', 'mean', 'median']:
         for _, row in daily_stats.iterrows():
-            fig.add_shape(
-                type="line",
-                x0=row['day_start'], x1=row['day_end'],
-                y0=row[stat], y1=row[stat],
-                line=dict(color=colors[stat], width=2, dash='solid'),
-                opacity=0.8, xref="x", yref="y"
-            )
+            if not np.isnan(row[stat]):
+                fig.add_shape(
+                    type="line",
+                    x0=row['day_start'], x1=row['day_end'],
+                    y0=row[stat], y1=row[stat],
+                    line=dict(color=colors[stat], width=2, dash='solid'),
+                    opacity=0.8, xref="x", yref="y"
+                )
         fig.add_trace(go.Scatter(
             x=daily_stats['noon'], y=daily_stats[stat],
             mode='lines+markers',
@@ -145,7 +146,11 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
         ))
     # Intervalle de confiance (vert si normal assumé, violet si non-param)
     for _, row in daily_stats.iterrows():
-        if row['normal'] and not np.isnan(row['ci_lower']):
+        if (
+            row['normal']
+            and not np.isnan(row.get('ci_lower'))
+            and not np.isnan(row.get('ci_upper'))
+        ):
             fig.add_shape(
                 type="rect",
                 x0=row['day_start'], x1=row['day_end'],
@@ -153,7 +158,11 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
                 fillcolor='rgba(0,128,0,0.2)',
                 line=dict(width=0), xref="x", yref="y"
             )
-        elif not row['normal'] and not np.isnan(row.get('ci_lower_np', np.nan)):
+        elif (
+            not row['normal']
+            and not np.isnan(row.get('ci_lower_np', np.nan))
+            and not np.isnan(row.get('ci_upper_np', np.nan))
+        ):
             fig.add_shape(
                 type="rect",
                 x0=row['day_start'], x1=row['day_end'],
@@ -180,30 +189,33 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
     )
     # Annotations pour les écarts en mm (différences quotidienne et vs global)
     for _, row in daily_stats.iterrows():
-        fig.add_annotation(
-            x=row['noon'],
-            y=row['mean'] + 0.0035,
-            text=f"Δ = {row['diff_mm']:.1f} mm",
-            showarrow=False,
-            font=dict(color=colors['mean'], size=12),
-            xref="x", yref="y"
-        )
-        fig.add_annotation(
-            x=row['noon'],
-            y=row['max'] + 0.0035,
-            text=f"Δ max = {row['diff_global_max_mm']:.1f} mm",
-            showarrow=False,
-            font=dict(color=colors['max'], size=12),
-            xref="x", yref="y"
-        )
-        fig.add_annotation(
-            x=row['noon'],
-            y=row['min'] - 0.0035,
-            text=f"Δ min = {row['diff_global_min_mm']:.1f} mm",
-            showarrow=False,
-            font=dict(color=colors['min'], size=12),
-            xref="x", yref="y"
-        )
+        if not np.isnan(row.get('diff_mm')):
+            fig.add_annotation(
+                x=row['noon'],
+                y=row['mean'] + 0.0035,
+                text=f"Δ = {row['diff_mm']:.1f} mm",
+                showarrow=False,
+                font=dict(color=colors['mean'], size=12),
+                xref="x", yref="y"
+            )
+        if not np.isnan(row.get('diff_global_max_mm')):
+            fig.add_annotation(
+                x=row['noon'],
+                y=row['max'] + 0.0035,
+                text=f"Δ max = {row['diff_global_max_mm']:.1f} mm",
+                showarrow=False,
+                font=dict(color=colors['max'], size=12),
+                xref="x", yref="y"
+            )
+        if not np.isnan(row.get('diff_global_min_mm')):
+            fig.add_annotation(
+                x=row['noon'],
+                y=row['min'] - 0.0035,
+                text=f"Δ min = {row['diff_global_min_mm']:.1f} mm",
+                showarrow=False,
+                font=dict(color=colors['min'], size=12),
+                xref="x", yref="y"
+            )
     fig.update_layout(
         title="Figure Principale - Évolution de l'inclinaison",
         xaxis_title="Temps",
