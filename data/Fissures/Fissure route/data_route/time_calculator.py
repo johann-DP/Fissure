@@ -25,11 +25,18 @@ def calculate_central_times(df, daily_stats=None):
 
 
 def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Pour chaque jour, identifie les extrema absolus hors 00:00 et 24:00,
-    en rejetant tout niveau (max ou min) qui apparaît aussi à la première
-    ou à la dernière mesure du jour (palier frontière).
-    Retourne ['day','time_max','val_max','time_min','val_min'].
+    """Calcule les heures et valeurs extrêmes de chaque journée.
+
+    Seules les mesures strictement comprises entre la première et la dernière
+    observation du jour sont conservées. Les lignes dont la valeur est égale,
+    à ``tol`` près, au premier ou au dernier relevé sont retirées afin de
+    supprimer les plateaux de bordure au lieu de rejeter la journée entière.
+
+    Returns
+    -------
+    pd.DataFrame
+        Colonnes ``['day', 'time_max', 'val_max', 'time_min', 'val_min']`` pour
+        chaque jour disposant encore de données intérieures.
     """
     import pandas as pd
     import numpy as np
@@ -48,32 +55,28 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
 
         t0 = grp["timestamp"].iloc[0]
         t1 = grp["timestamp"].iloc[-1]
-        interior = grp[(grp["timestamp"] > t0) & (grp["timestamp"] < t1)]
-        if len(interior) < 2:
+        interior = grp[(grp["timestamp"] > t0) & (grp["timestamp"] < t1)].copy()
+        if interior.empty:
             continue
 
-        # --- MAX ---
+        # Retire les éventuels plateaux de bordure (même valeur qu'en 1ère ou
+        # dernière mesure du jour)
+        first_val = grp["inch"].iloc[0]
+        last_val = grp["inch"].iloc[-1]
+        interior = interior[~np.isclose(interior["inch"], first_val, atol=tol)]
+        interior = interior[~np.isclose(interior["inch"], last_val, atol=tol)]
+        if interior.empty:
+            continue
+
         val_max = interior["inch"].max()
-        # rejet si ce niveau apparaît à la frontière
-        bmax = grp[np.abs(grp["inch"] - val_max) < tol]
-        if (bmax["timestamp"] == t0).any() or (bmax["timestamp"] == t1).any():
-            continue
+        time_max = interior.loc[interior["inch"].idxmax(), "timestamp"]
 
-        pm = interior[np.abs(interior["inch"] - val_max) < tol]
-        time_max = pm["timestamp"].iloc[0]
-
-        # --- MIN (phase décroissante après time_max) ---
         aft = interior[interior["timestamp"] > time_max]
         if aft.empty:
             continue
 
         val_min = aft["inch"].min()
-        bmin = grp[np.abs(grp["inch"] - val_min) < tol]
-        if (bmin["timestamp"] == t0).any() or (bmin["timestamp"] == t1).any():
-            continue
-
-        pmn = aft[np.abs(aft["inch"] - val_min) < tol]
-        time_min = pmn["timestamp"].iloc[0]
+        time_min = aft.loc[aft["inch"].idxmin(), "timestamp"]
 
         records.append({
             "day":      day,
