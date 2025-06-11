@@ -10,60 +10,51 @@ from scipy.stats import t
 def calculate_daily_stats(df: pd.DataFrame):
     """
     Calcule pour chaque jour :
-      - min et max en excluant les mesures EXACTEMENT à 0 h et 24 h,
+      - min et max en excluant :
+          • les mesures EXACTEMENT à 00:00 ou 24:00,
+          • tout palier traversant ces bordures (paliers dont l’un des extrêmes est à 00:00 ou 24:00),
       - mean, median (toujours sur toutes les mesures),
       - day_start, day_end, noon,
       - diff_mm = (max - min)*25.4,
       - diff_global_max_mm et diff_global_min_mm.
     """
-    import numpy as np
-    import pandas as pd
+    from time_calculator import compute_daily_extrema_timestamps
 
-    # 1) Première passe : on récupère quand même les
-    #    min/max/mean/median globaux par jour (sur toutes les mesures).
+    # Préparer timestamps et date
+    df = df.copy()
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    df['day'] = df['timestamp'].dt.date
+
+    # 1) Moyenne et médiane sur toutes les mesures
     daily = (
         df.groupby('day')['inch']
-          .agg(['min', 'max', 'mean', 'median'])
+          .agg(['mean', 'median'])
           .reset_index()
     )
 
-    # 2) On convertit le champ 'day' en timestamp de début/jour
+    # 2) Calcul des bornes temporelles
     daily['day_start'] = pd.to_datetime(daily['day'])
-    daily['day_end'] = daily['day_start'] + pd.Timedelta(days=1)
-    daily['noon'] = daily['day_start'] + pd.Timedelta(hours=12)
+    daily['day_end']   = daily['day_start'] + pd.Timedelta(days=1)
+    daily['noon']      = daily['day_start'] + pd.Timedelta(hours=12)
 
-    # 3) Pour chaque jour, on recalcule "min_int" et "max_int" en éliminant
-    #    la mesure à 0 h (first_ts) et la mesure à 24 h (last_ts).
-    #    Si, après exclusion, il n'y a plus de mesure, on force NaN.
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    # 3) Récupérer min/max absolus corrects via compute_daily_extrema_timestamps
+    ext = compute_daily_extrema_timestamps(df)
+    ext = ext.set_index('day')
+
+    # 4) Assigner val_min et val_max au DataFrame daily
+    daily['min'] = np.nan
+    daily['max'] = np.nan
     for idx, row in daily.iterrows():
-        jour = row['day']
-        # a) extraire toutes les mesures du jour
-        day_df = df[df['day'] == jour]
+        d = row['day']
+        if d in ext.index:
+            daily.at[idx, 'min'] = ext.at[d, 'val_min']
+            daily.at[idx, 'max'] = ext.at[d, 'val_max']
+        # sinon laisser NaN
 
-        # b) repérer la première et la dernière timestamp de la journée
-        first_ts = day_df['timestamp'].min()
-        last_ts  = day_df['timestamp'].max()
-
-        # c) ne garder QUE les mesures strictement à l'intérieur de la journée
-        interior = day_df[
-            (day_df['timestamp'] > first_ts) &
-            (day_df['timestamp'] < last_ts)
-        ]
-
-        if not interior.empty:
-            # nouveau min / max à l'intérieur
-            daily.at[idx, 'min'] = interior['inch'].min()
-            daily.at[idx, 'max'] = interior['inch'].max()
-        else:
-            # si pas de mesure intérieure (par exemple, une seule mesure ce jour-là)
-            daily.at[idx, 'min'] = np.nan
-            daily.at[idx, 'max'] = np.nan
-
-    # 4) On recalcule 'diff_mm' sur la base des nouveaux min et max
+    # 5) diff_mm
     daily['diff_mm'] = (daily['max'] - daily['min']) * 25.4
 
-    # 5) On garde les gmin / gmax sur l'ensemble du DataFrame
+    # 6) Global min/max sur toutes les données
     gmin = df['inch'].min()
     gmax = df['inch'].max()
     daily['diff_global_max_mm'] = (gmax - daily['max']) * 25.4

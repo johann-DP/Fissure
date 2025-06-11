@@ -128,21 +128,10 @@ daily_stats, gmin, gmax = calculate_daily_stats(df)
 daily_stats = calculate_confidence_intervals(df, daily_stats)
 
 # ---------------------------------------------------------- 3. Heures centrales des extrêmes
-# (on supprime l’ancien calculate_central_times et on n’utilise plus min_times/max_times)
 daily_extrema_df = compute_daily_extrema_timestamps(df)
-# # On récupère d’abord les timestamps purs
-# min_times_ts = daily_extrema_df["time_min"].tolist()
-# max_times_ts = daily_extrema_df["time_max"].tolist()
-# # Puis on convertit en heures décimales pour l’usage dans get_primary_peak_hours
-# min_times = np.array([t.hour + t.minute / 60 + t.second / 3600 for t in min_times_ts], dtype=float)
-# max_times = np.array([t.hour + t.minute / 60 + t.second / 3600 for t in max_times_ts], dtype=float)
-
 min_times, max_times = calculate_central_times(df, daily_stats)
-# Conversion explicite en tableaux NumPy de float
 min_times = np.array(min_times, dtype=float)
 max_times = np.array(max_times, dtype=float)
-
-
 
 # ---------------------------------------------------------- 4. Agrégation par demi-heure
 df_half_mean, df_half_med, jour_moyen, jour_median = aggregate_by_half_hour(df)
@@ -169,7 +158,7 @@ for key, ser in (
 # ---------------------------------------------------------- 6. Statistiques d'extrêmes journaliers
 ext_stats = compute_extremes_stats(df)
 
-# 1. Heures brutes d'extrêmes (désormais déjà converties en décimales)
+# 1. Heures brutes d'extrêmes
 h_min = min_times
 h_max = max_times
 

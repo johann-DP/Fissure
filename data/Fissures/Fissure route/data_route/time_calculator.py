@@ -26,13 +26,13 @@ def calculate_central_times(df, daily_stats=None):
 
 def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Retourne pour chaque jour les extrema absolus hors 00:00 et 24:00 :
-      - 'day'     : date (YYYY-MM-DD)
-      - 'time_max': timestamp du premier point du plateau de max absolu
-      - 'val_max' : valeur inch du max
-      - 'time_min': timestamp du premier point du plateau de min absolu (après le max)
-      - 'val_min' : valeur inch du min
+    Pour chaque jour, identifie les extrema absolus hors 00:00 et 24:00,
+    en rejetant tout niveau (max ou min) qui apparaît aussi à la première
+    ou à la dernière mesure du jour (palier frontière).
+    Retourne ['day','time_max','val_max','time_min','val_min'].
     """
+    import pandas as pd
+    import numpy as np
 
     df2 = df.copy()
     df2["timestamp"] = pd.to_datetime(df2["timestamp"])
@@ -44,7 +44,7 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
 
     for day, grp in df2.groupby("day"):
         if len(grp) < 3:
-            continue  # pas assez de points intérieurs
+            continue
 
         t0 = grp["timestamp"].iloc[0]
         t1 = grp["timestamp"].iloc[-1]
@@ -52,18 +52,28 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         if len(interior) < 2:
             continue
 
-        # --- max absolu intérieur ---
+        # --- MAX ---
         val_max = interior["inch"].max()
-        plateau_max = interior[np.abs(interior["inch"] - val_max) < tol]
-        time_max = plateau_max["timestamp"].iloc[0]
+        # rejet si ce niveau apparaît à la frontière
+        bmax = grp[np.abs(grp["inch"] - val_max) < tol]
+        if (bmax["timestamp"] == t0).any() or (bmax["timestamp"] == t1).any():
+            continue
 
-        # --- min absolu dans la phase décroissante ---
+        pm = interior[np.abs(interior["inch"] - val_max) < tol]
+        time_max = pm["timestamp"].iloc[0]
+
+        # --- MIN (phase décroissante après time_max) ---
         aft = interior[interior["timestamp"] > time_max]
         if aft.empty:
             continue
+
         val_min = aft["inch"].min()
-        plateau_min = aft[np.abs(aft["inch"] - val_min) < tol]
-        time_min = plateau_min["timestamp"].iloc[0]
+        bmin = grp[np.abs(grp["inch"] - val_min) < tol]
+        if (bmin["timestamp"] == t0).any() or (bmin["timestamp"] == t1).any():
+            continue
+
+        pmn = aft[np.abs(aft["inch"] - val_min) < tol]
+        time_min = pmn["timestamp"].iloc[0]
 
         records.append({
             "day":      day,

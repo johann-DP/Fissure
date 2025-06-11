@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from stats_calculator import get_primary_peak_hours, compute_hdi
 from typing import List, Tuple
+from time_calculator import compute_daily_extrema_timestamps
 
 
 def filter_constant_plateaus(data: List[Tuple[pd.Timestamp, float]]) -> List[Tuple[pd.Timestamp, float]]:
@@ -38,15 +39,18 @@ def filter_constant_plateaus(data: List[Tuple[pd.Timestamp, float]]) -> List[Tup
 
 
 def create_fig_main(df, daily_stats, global_min, global_max, colors):
+    """
+    Figure principale :
+    - la série brute “Mesures” est allégée aux seuls débuts/fins de palier constant,
+    - les plateaux min/max journaliers sont tracés à partir des extrema hors 00:00/24:00,
+      exclusivement tirés de compute_daily_extrema_timestamps(df),
+      garantissant qu’aucun palier traversant n’est pris en compte.
+    """
+    from time_calculator import compute_daily_extrema_timestamps
+
     fig = go.Figure()
-    # Correction 1 : Exclure les mesures à 00:00 et 24:00 des calculs d'extrêmes quotidiens
-    daily_stats = daily_stats.copy()
-    for idx, row in daily_stats.iterrows():
-        mask = (df['timestamp'] > row['day_start']) & (df['timestamp'] < row['day_end'])
-        if mask.any():
-            daily_stats.at[idx, 'min'] = df.loc[mask, 'inch'].min()
-            daily_stats.at[idx, 'max'] = df.loc[mask, 'inch'].max()
-    # Correction 2 : Réduire les points affichés aux seuls changements de valeur (début/fin de plateau)
+
+    # Correction 1 : Réduire les points affichés aux seuls changements de valeur (début/fin de plateau)
     if not df.empty:
         if len(df) > 1:
             changes = df['inch'].values[1:] != df['inch'].values[:-1]
@@ -58,6 +62,7 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
         df_points = df.iloc[mask_points]
     else:
         df_points = df
+
     # Nuage de points des mesures (points de changement, transparence pour densité)
     fig.add_trace(go.Scatter(
         x=df_points['timestamp'], y=df_points['inch'],
@@ -67,6 +72,59 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
         customdata=np.stack([df_points['mm']], axis=-1),
         hovertemplate='Time: %{x}<br>Inclinaison: %{y:.3f} inch<br>%{customdata[0]:.1f} mm'
     ))
+
+    # Correction 2 : Exclure les mesures à 00:00 et 24:00 des calculs d'extrêmes quotidiens
+    # y compris les éventuels paliers à ces mêmes heures ou la présence de NaN due à des coupures dans les mesures
+    daily_stats = daily_stats.copy()
+    for idx, row in daily_stats.iterrows():
+        # 1) Extraire et trier les mesures du jour, en supprimant les NaN
+        day_df = df[df['day'] == row['day']].sort_values('timestamp')
+        day_df = day_df[day_df['inch'].notna()]
+        if len(day_df) < 2:
+            daily_stats.at[idx, 'min'] = np.nan
+            daily_stats.at[idx, 'max'] = np.nan
+            continue
+
+        # 2) Bornes 00:00 et 24:00
+        first_ts = day_df['timestamp'].iloc[0]
+        last_ts = day_df['timestamp'].iloc[-1]
+
+        # 3) Sous-ensemble intérieur (hors 00:00/24:00)
+        interior = day_df[(day_df['timestamp'] > first_ts) & (day_df['timestamp'] < last_ts)]
+        if interior.empty:
+            daily_stats.at[idx, 'min'] = np.nan
+            daily_stats.at[idx, 'max'] = np.nan
+            continue
+
+        # 4) MAX absolu valide
+        max_val = None
+        for v in sorted(interior['inch'].unique(), reverse=True):
+            boundary = day_df[day_df['inch'] == v]
+            # on rejette si ce niveau est aussi à first_ts ou last_ts
+            if not (boundary['timestamp'].eq(first_ts).any() or boundary['timestamp'].eq(last_ts).any()):
+                max_val = v
+                break
+        daily_stats.at[idx, 'max'] = max_val if max_val is not None else np.nan
+
+        # 5) MIN absolu valide après max
+        if pd.isna(max_val):
+            daily_stats.at[idx, 'min'] = np.nan
+            continue
+
+        max_ts = day_df.loc[day_df['inch'] == max_val, 'timestamp'].min()
+        aft = interior[interior['timestamp'] > max_ts]
+        if aft.empty:
+            daily_stats.at[idx, 'min'] = np.nan
+            continue
+
+        min_val = None
+        for v in sorted(aft['inch'].unique()):
+            boundary = day_df[day_df['inch'] == v]
+            if not (boundary['timestamp'].eq(first_ts).any() or boundary['timestamp'].eq(last_ts).any()):
+                min_val = v
+                break
+        daily_stats.at[idx, 'min'] = min_val if min_val is not None else np.nan
+
     # Lignes horizontales pour min, max, mean, median de chaque jour + trace de ces stats
     for stat in ['min', 'max', 'mean', 'median']:
         for _, row in daily_stats.iterrows():
