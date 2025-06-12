@@ -68,15 +68,12 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         if interior.empty:
             continue
 
+        # Max et min absolus sur les données restantes (ordre indifférent)
         val_max = interior["inch"].max()
         time_max = interior.loc[interior["inch"].idxmax(), "timestamp"]
 
-        aft = interior[interior["timestamp"] > time_max]
-        if aft.empty:
-            continue
-
-        val_min = aft["inch"].min()
-        time_min = aft.loc[aft["inch"].idxmin(), "timestamp"]
+        val_min = interior["inch"].min()
+        time_min = interior.loc[interior["inch"].idxmin(), "timestamp"]
 
         records.append({
             "day":      day,
