@@ -27,10 +27,12 @@ def calculate_central_times(df, daily_stats=None):
 def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     """Calcule les heures et valeurs extrêmes de chaque journée.
 
-    Seules les mesures strictement comprises entre la première et la dernière
-    observation du jour sont conservées. Les lignes dont la valeur est égale,
-    à ``tol`` près, au premier ou au dernier relevé sont retirées afin de
-    supprimer les plateaux de bordure au lieu de rejeter la journée entière.
+    Les segments monotones en début et fin de journée sont écartés afin de ne
+    conserver que le cœur de la variation journalière. Ces segments sont
+    détectés via le signe des différences successives entre mesures. Une fois
+    ce cœur isolé, les éventuels plateaux aux nouvelles extrémités
+    (valeur égale, à ``tol`` près, à la première ou dernière mesure retenue)
+    sont également retirés.
 
     Returns
     -------
@@ -53,16 +55,27 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         if len(grp) < 3:
             continue
 
-        t0 = grp["timestamp"].iloc[0]
-        t1 = grp["timestamp"].iloc[-1]
-        interior = grp[(grp["timestamp"] > t0) & (grp["timestamp"] < t1)].copy()
-        if interior.empty:
+        signs = np.sign(np.diff(grp["inch"].to_numpy()))
+
+        start_idx = 1
+        switch_down = np.where((signs[:-1] >= 0) & (signs[1:] < 0))[0]
+        if switch_down.size:
+            start_idx = switch_down[0] + 1
+
+        end_idx = len(grp) - 2
+        switch_up = np.where((signs[:-1] <= 0) & (signs[1:] > 0))[0]
+        if switch_up.size:
+            end_idx = switch_up[-1] + 1
+
+        if start_idx >= end_idx:
             continue
 
+        interior = grp.iloc[start_idx : end_idx + 1].copy()
+
         # Retire les éventuels plateaux de bordure (même valeur qu'en 1ère ou
-        # dernière mesure du jour)
-        first_val = grp["inch"].iloc[0]
-        last_val = grp["inch"].iloc[-1]
+        # dernière mesure conservée)
+        first_val = interior["inch"].iloc[0]
+        last_val = interior["inch"].iloc[-1]
         interior = interior[~np.isclose(interior["inch"], first_val, atol=tol)]
         interior = interior[~np.isclose(interior["inch"], last_val, atol=tol)]
         if interior.empty:
