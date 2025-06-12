@@ -96,33 +96,20 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
             daily_stats.at[idx, 'max'] = np.nan
             continue
 
-        # 4) MAX absolu valide
+        # 4) MAX et MIN absolus valides (ordre indifférent)
         max_val = None
+        min_val = None
         for v in sorted(interior['inch'].unique(), reverse=True):
             boundary = day_df[day_df['inch'] == v]
-            # on rejette si ce niveau est aussi à first_ts ou last_ts
             if not (boundary['timestamp'].eq(first_ts).any() or boundary['timestamp'].eq(last_ts).any()):
                 max_val = v
                 break
-        daily_stats.at[idx, 'max'] = max_val if max_val is not None else np.nan
-
-        # 5) MIN absolu valide après max
-        if pd.isna(max_val):
-            daily_stats.at[idx, 'min'] = np.nan
-            continue
-
-        max_ts = day_df.loc[day_df['inch'] == max_val, 'timestamp'].min()
-        aft = interior[interior['timestamp'] > max_ts]
-        if aft.empty:
-            daily_stats.at[idx, 'min'] = np.nan
-            continue
-
-        min_val = None
-        for v in sorted(aft['inch'].unique()):
+        for v in sorted(interior['inch'].unique()):
             boundary = day_df[day_df['inch'] == v]
             if not (boundary['timestamp'].eq(first_ts).any() or boundary['timestamp'].eq(last_ts).any()):
                 min_val = v
                 break
+        daily_stats.at[idx, 'max'] = max_val if max_val is not None else np.nan
         daily_stats.at[idx, 'min'] = min_val if min_val is not None else np.nan
 
     # Lignes horizontales pour min, max, mean, median de chaque jour + trace de ces stats

@@ -181,9 +181,14 @@ def compute_confidence_intervals_hours(hours: np.ndarray,
 
 # ------------------------------------------------------- extrêmes journaliers
 def extract_extreme_hours(df: pd.DataFrame):
-    idx_max = df.groupby('day')['inch'].idxmax()
-    idx_min = df.groupby('day')['inch'].idxmin()
-    return df.loc[idx_max, 'hour'].to_numpy(), df.loc[idx_min, 'hour'].to_numpy()
+    """Heures (décimales) des max/min journaliers hors 00:00/24:00."""
+    from time_calculator import compute_daily_extrema_timestamps
+
+    ext = compute_daily_extrema_timestamps(df)
+    to_hours = lambda ts: ts.dt.hour + ts.dt.minute / 60 + ts.dt.second / 3600
+    h_max = to_hours(ext['time_max'])
+    h_min = to_hours(ext['time_min'])
+    return h_max.to_numpy(), h_min.to_numpy()
 
 
 def compute_extremes_stats(df: pd.DataFrame,
