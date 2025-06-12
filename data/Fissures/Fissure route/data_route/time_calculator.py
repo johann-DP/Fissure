@@ -27,10 +27,12 @@ def calculate_central_times(df, daily_stats=None):
 def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     """Calcule les heures et valeurs extrêmes de chaque journée.
 
-    Seules les mesures strictement comprises entre la première et la dernière
-    observation du jour sont conservées. Les lignes dont la valeur est égale,
-    à ``tol`` près, au premier ou au dernier relevé sont retirées afin de
-    supprimer les plateaux de bordure au lieu de rejeter la journée entière.
+    Les segments monotones en début et fin de journée sont écartés afin de ne
+    conserver que le cœur de la variation journalière. Ces segments sont
+    détectés via le signe des différences successives entre mesures. Une fois
+    ce cœur isolé, les éventuels plateaux aux nouvelles extrémités
+    (valeur égale, à ``tol`` près, à la première ou dernière mesure retenue)
+    sont également retirés.
 
     Returns
     -------
@@ -56,12 +58,12 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         signs = np.sign(np.diff(grp["inch"].to_numpy()))
 
         start_idx = 1
-        switch_down = np.where((signs[:-1] > 0) & (signs[1:] < 0))[0]
+        switch_down = np.where((signs[:-1] >= 0) & (signs[1:] < 0))[0]
         if switch_down.size:
             start_idx = switch_down[0] + 1
 
         end_idx = len(grp) - 2
-        switch_up = np.where((signs[:-1] < 0) & (signs[1:] > 0))[0]
+        switch_up = np.where((signs[:-1] <= 0) & (signs[1:] > 0))[0]
         if switch_up.size:
             end_idx = switch_up[-1] + 1
 
