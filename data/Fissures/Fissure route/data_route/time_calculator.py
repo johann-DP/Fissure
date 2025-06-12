@@ -30,7 +30,15 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
     Seules les mesures strictement comprises entre la première et la dernière
     observation du jour sont conservées. Les lignes dont la valeur est égale,
     à ``tol`` près, au premier ou au dernier relevé sont retirées afin de
-    supprimer les plateaux de bordure au lieu de rejeter la journée entière.
+    supprimer les plateaux de bordure.
+
+    La phase initiale strictement croissante et la phase finale, également
+    croissante, sont ensuite ignorées pour ne conserver que les valeurs
+    intermédiaires, depuis la fin de la première phase jusqu'au début de la
+    dernière (points de transition inclus). Les extrema absolus sont recherchés
+    dans cette fenêtre centrale : ils peuvent donc survenir juste à la sortie
+    de la phase initiale ou au tout début de la phase finale, mais jamais dans
+    les paliers frontaliers eux‑mêmes.
 
     Returns
     -------
@@ -68,20 +76,47 @@ def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         if interior.empty:
             continue
 
-        # Max et min absolus sur les données restantes (ordre indifférent)
-        val_max = interior["inch"].max()
-        time_max = interior.loc[interior["inch"].idxmax(), "timestamp"]
+        vals = interior["inch"].to_numpy()
+        if len(vals) < 2:
+            continue
 
-        val_min = interior["inch"].min()
-        time_min = interior.loc[interior["inch"].idxmin(), "timestamp"]
+        diffs = np.diff(vals)
 
-        records.append({
-            "day":      day,
-            "time_max": time_max,
-            "val_max":  val_max,
-            "time_min": time_min,
-            "val_min":  val_min
-        })
+        # -- fin de la première phase croissante (index du dernier diff > 0)
+        if (diffs <= 0).any():
+            first_down = np.argmax(diffs <= 0)
+        else:
+            # pas de cassure : journée monotone, ignorer
+            continue
+
+        # -- début de la dernière phase croissante (index après la dernière cassure)
+        if (diffs[::-1] <= 0).any():
+            last_non_inc = len(diffs) - np.argmax(diffs[::-1] <= 0) - 1
+        else:
+            continue
+
+        if last_non_inc < first_down:
+            continue
+
+        interior_mid = interior.iloc[first_down : last_non_inc + 1]
+        if interior_mid.empty:
+            continue
+
+        val_max = interior_mid["inch"].max()
+        time_max = interior_mid.loc[interior_mid["inch"].idxmax(), "timestamp"]
+
+        val_min = interior_mid["inch"].min()
+        time_min = interior_mid.loc[interior_mid["inch"].idxmin(), "timestamp"]
+
+        records.append(
+            {
+                "day": day,
+                "time_max": time_max,
+                "val_max": val_max,
+                "time_min": time_min,
+                "val_min": val_min,
+            }
+        )
 
     return pd.DataFrame(records)
 
@@ -91,22 +126,22 @@ def get_extreme_half_hours(df_day_half_mean, df_day_half_median):
     Récupère, pour chaque jour, l'heure (en demi-heure décimale) où se produit
     le max/min dans df_day_half_mean et df_day_half_median.
     """
-    max_half_times_mean = df_day_half_mean.groupby('day').apply(
-        lambda grp: grp.loc[grp['inch'].idxmax(), 'half_hour']
+    max_half_times_mean = df_day_half_mean.groupby("day").apply(
+        lambda grp: grp.loc[grp["inch"].idxmax(), "half_hour"]
     )
-    min_half_times_mean = df_day_half_mean.groupby('day').apply(
-        lambda grp: grp.loc[grp['inch'].idxmin(), 'half_hour']
+    min_half_times_mean = df_day_half_mean.groupby("day").apply(
+        lambda grp: grp.loc[grp["inch"].idxmin(), "half_hour"]
     )
-    max_half_times_median = df_day_half_median.groupby('day').apply(
-        lambda grp: grp.loc[grp['inch'].idxmax(), 'half_hour']
+    max_half_times_median = df_day_half_median.groupby("day").apply(
+        lambda grp: grp.loc[grp["inch"].idxmax(), "half_hour"]
     )
-    min_half_times_median = df_day_half_median.groupby('day').apply(
-        lambda grp: grp.loc[grp['inch'].idxmin(), 'half_hour']
+    min_half_times_median = df_day_half_median.groupby("day").apply(
+        lambda grp: grp.loc[grp["inch"].idxmin(), "half_hour"]
     )
 
     return {
         "max_half_times_mean": max_half_times_mean,
         "min_half_times_mean": min_half_times_mean,
         "max_half_times_median": max_half_times_median,
-        "min_half_times_median": min_half_times_median
+        "min_half_times_median": min_half_times_median,
     }

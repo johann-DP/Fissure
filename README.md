@@ -66,12 +66,17 @@ Deux options sont disponibles :
 1. **Visualiser des figures spécifiques :** Les fichiers HTML sont stockés dans le répertoire `results`. Vous pouvez visualiser les figures directement via un navigateur en ouvrant ces fichiers.
 
 2. **Exécuter le dashboard dynamique :** 
-   - Lancer le dashboard avec la commande suivante :  
+   - Lancer le dashboard avec la commande suivante :
      ```
-     python src/main.py  
+     python src/main.py
      ```
 
    - Accéder au dashboard via le navigateur à l'adresse `http://localhost:8050`.
+
+### Préparation des mesures
+Les capteurs enregistrent chaque valeur deux fois à quelques secondes d'intervalle.
+Lors du chargement des fichiers, les lectures espacées de moins de **10 s** sont
+donc filtrées pour supprimer ces doublons sans modifier les statistiques.
 
 ---
 
