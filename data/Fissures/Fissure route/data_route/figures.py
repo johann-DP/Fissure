@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from stats_calculator import get_primary_peak_hours, compute_hdi
 from typing import List, Tuple
-from time_calculator import compute_daily_extrema_timestamps
 
 
 def filter_constant_plateaus(data: List[Tuple[pd.Timestamp, float]]) -> List[Tuple[pd.Timestamp, float]]:
@@ -42,11 +41,10 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
     """
     Figure principale :
     - la série brute “Mesures” est allégée aux seuls débuts/fins de palier constant,
-    - les plateaux min/max journaliers sont tracés à partir des extrema hors 00:00/24:00,
-      exclusivement tirés de compute_daily_extrema_timestamps(df),
-      garantissant qu’aucun palier traversant n’est pris en compte.
+    - les plateaux min/max journaliers sont calculés via ``compute_daily_extrema_timestamps``
+      (appelé dans ``calculate_daily_stats``), garantissant qu’aucun palier traversant
+      n’est pris en compte.
     """
-    from time_calculator import compute_daily_extrema_timestamps
 
     fig = go.Figure()
 
@@ -73,44 +71,11 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
         hovertemplate='Time: %{x}<br>Inclinaison: %{y:.3f} inch<br>%{customdata[0]:.1f} mm'
     ))
 
-    # Correction 2 : Exclure les mesures à 00:00 et 24:00 des calculs d'extrêmes quotidiens
-    # y compris les éventuels paliers à ces mêmes heures ou la présence de NaN due à des coupures dans les mesures
+    # Correction 2 : les valeurs min/max quotidiennes sont désormais calculées
+    # uniquement via ``compute_daily_extrema_timestamps`` dans
+    # ``calculate_daily_stats``. On se contente donc d'utiliser les colonnes
+    # 'min' et 'max' déjà présentes dans ``daily_stats``.
     daily_stats = daily_stats.copy()
-    for idx, row in daily_stats.iterrows():
-        # 1) Extraire et trier les mesures du jour, en supprimant les NaN
-        day_df = df[df['day'] == row['day']].sort_values('timestamp')
-        day_df = day_df[day_df['inch'].notna()]
-        if len(day_df) < 2:
-            daily_stats.at[idx, 'min'] = np.nan
-            daily_stats.at[idx, 'max'] = np.nan
-            continue
-
-        # 2) Bornes 00:00 et 24:00
-        first_ts = day_df['timestamp'].iloc[0]
-        last_ts = day_df['timestamp'].iloc[-1]
-
-        # 3) Sous-ensemble intérieur (hors 00:00/24:00)
-        interior = day_df[(day_df['timestamp'] > first_ts) & (day_df['timestamp'] < last_ts)]
-        if interior.empty:
-            daily_stats.at[idx, 'min'] = np.nan
-            daily_stats.at[idx, 'max'] = np.nan
-            continue
-
-        # 4) MAX et MIN absolus valides (ordre indifférent)
-        max_val = None
-        min_val = None
-        for v in sorted(interior['inch'].unique(), reverse=True):
-            boundary = day_df[day_df['inch'] == v]
-            if not (boundary['timestamp'].eq(first_ts).any() or boundary['timestamp'].eq(last_ts).any()):
-                max_val = v
-                break
-        for v in sorted(interior['inch'].unique()):
-            boundary = day_df[day_df['inch'] == v]
-            if not (boundary['timestamp'].eq(first_ts).any() or boundary['timestamp'].eq(last_ts).any()):
-                min_val = v
-                break
-        daily_stats.at[idx, 'max'] = max_val if max_val is not None else np.nan
-        daily_stats.at[idx, 'min'] = min_val if min_val is not None else np.nan
 
     # Lignes horizontales pour min, max, mean, median de chaque jour + trace de ces stats
     for stat in ['min', 'max', 'mean', 'median']:
