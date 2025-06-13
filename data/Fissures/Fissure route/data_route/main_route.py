@@ -307,20 +307,20 @@ fig_jour_median = create_fig_jour(
 )
 
 # Figures de corrélation Heure vs Valeur (heure moyenne et médiane auxquelles chaque valeur est atteinte)
-fig_val_step_mean = create_fig_value_step(df_bin_mean, "Heure moyenne vs Valeur", color=colors['mean'])
-fig_val_step_med = create_fig_value_step(df_bin_med, "Heure médiane vs Valeur", color=colors['median'])
+# fig_val_step_mean = create_fig_value_step(df_bin_mean, "Heure moyenne vs Valeur", color=colors['mean'])
+# fig_val_step_med = create_fig_value_step(df_bin_med, "Heure médiane vs Valeur", color=colors['median'])
 
 # ---------------------------------------------------------- 9. Prévisions basées sur Prophet
-# Préparation des données pour Prophet
-df_prophet = df[['timestamp', 'inch']].rename(columns={'timestamp': 'ds', 'inch': 'y'})
-model = Prophet(daily_seasonality=True, weekly_seasonality=False, yearly_seasonality=False)
-model.fit(df_prophet)
-# Génération des dates futures (7 jours à fréquence horaire)
-horizon_days = 7
-future = model.make_future_dataframe(periods=horizon_days * 24, freq='H', include_history=False)
-forecast_df = model.predict(future)
-# Figure de prévision (historique + projection avec IC95)
-fig_forecast = create_fig_forecast(df, forecast_df, horizon_days=horizon_days)
+# # Préparation des données pour Prophet
+# df_prophet = df[['timestamp', 'inch']].rename(columns={'timestamp': 'ds', 'inch': 'y'})
+# model = Prophet(daily_seasonality=True, weekly_seasonality=False, yearly_seasonality=False)
+# model.fit(df_prophet)
+# # Génération des dates futures (7 jours à fréquence horaire)
+# horizon_days = 7
+# future = model.make_future_dataframe(periods=horizon_days * 24, freq='H', include_history=False)
+# forecast_df = model.predict(future)
+# # Figure de prévision (historique + projection avec IC95)
+# fig_forecast = create_fig_forecast(df, forecast_df, horizon_days=horizon_days)
 
 # ---------------------------------------------------------- 10. Configuration Dash et onglets
 app = dash.Dash(__name__)
@@ -361,15 +361,15 @@ app.layout = html.Div([
                 ], style={'width': '33%', 'display': 'inline-block'})
             ])
         ]),
-        dcc.Tab(label="Heure vs Valeur", children=[
-            html.Div([
-                dcc.Graph(figure=fig_val_step_mean, style={'height': '50vh'}),
-                dcc.Graph(figure=fig_val_step_med, style={'height': '50vh'})
-            ])
-        ]),
-        dcc.Tab(label="Prévisions", children=[
-            dcc.Graph(figure=fig_forecast, style={'height': '90vh'})
-        ])
+        # dcc.Tab(label="Heure vs Valeur", children=[
+        #     html.Div([
+        #         dcc.Graph(figure=fig_val_step_mean, style={'height': '50vh'}),
+        #         dcc.Graph(figure=fig_val_step_med, style={'height': '50vh'})
+        #     ])
+        # ]),
+        # dcc.Tab(label="Prévisions", children=[
+        #     dcc.Graph(figure=fig_forecast, style={'height': '90vh'})
+        # ])
     ])
 ])
 

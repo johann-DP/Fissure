@@ -704,8 +704,6 @@ def create_fig_values_timeseries(daily_stats, colors):
         y=ds['max'],
         mode='lines',
         line=dict(color='rgba(0,0,0,0)'),
-        fill='tonexty',
-        fillcolor='rgba(128,128,128,0.2)',
         showlegend=False,
         hoverinfo='skip'
     ))
@@ -714,6 +712,8 @@ def create_fig_values_timeseries(daily_stats, colors):
         y=ds['min'],
         mode='lines',
         line=dict(color='rgba(0,0,0,0)'),
+        fill='tonexty',
+        fillcolor='rgba(128,128,128,0.2)',
         showlegend=False,
         hoverinfo='skip'
     ))
