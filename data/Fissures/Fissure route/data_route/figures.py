@@ -99,9 +99,9 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
     # Intervalle de confiance (vert si normal assumé, violet si non-param)
     for _, row in daily_stats.iterrows():
         if (
-            row['normal']
-            and not np.isnan(row.get('ci_lower'))
-            and not np.isnan(row.get('ci_upper'))
+                row['normal']
+                and not np.isnan(row.get('ci_lower'))
+                and not np.isnan(row.get('ci_upper'))
         ):
             fig.add_shape(
                 type="rect",
@@ -111,9 +111,9 @@ def create_fig_main(df, daily_stats, global_min, global_max, colors):
                 line=dict(width=0), xref="x", yref="y"
             )
         elif (
-            not row['normal']
-            and not np.isnan(row.get('ci_lower_np', np.nan))
-            and not np.isnan(row.get('ci_upper_np', np.nan))
+                not row['normal']
+                and not np.isnan(row.get('ci_lower_np', np.nan))
+                and not np.isnan(row.get('ci_upper_np', np.nan))
         ):
             fig.add_shape(
                 type="rect",
@@ -309,8 +309,6 @@ def create_fig_hours(min_times, max_times, nbinsx_hours):
     afin que get_primary_peak_hours puisse y appliquer np.isnan() sans erreur.
     """
 
-    import numpy as np
-    import plotly.graph_objs as go
     from stats_calculator import get_primary_peak_hours
 
     fig = go.Figure()
@@ -454,39 +452,41 @@ def create_fig_jour(
         line_shape='hv',
         name=label,
         line=dict(color=colors[color_key]),
-        hovertemplate="Période %{x:.1f} h<br>" + hover_label + ": %{y:.3f} inch"
+        hovertemplate="Période %{x:.1f} h<br>" + hover_label + ": %{y:.3f} inch",
+        showlegend=False
     ))
     fig.update_layout(
         title=full_title,
         xaxis_title="Heure (h)",
         yaxis_title=axis_title,
         xaxis=dict(range=[0, 24]),
-        margin=dict(t=120)
+        margin=dict(t=120),
+        showlegend=False
     )
     # pour le jour médian seulement : barplot différence moyenne–médiane
     if "médian" in label.lower() and base_data is not None:
         diff = base_data['inch'] - data['inch']
         fig.add_trace(go.Bar(
-            x = data['half_hour'],
-            y = diff,
-            marker = dict(color='rgba(200,200,200,0.5)'),
-            yaxis = 'y2',
-            showlegend = False
-            ))
+            x=data['half_hour'],
+            y=diff,
+            marker=dict(color='rgba(200,200,200,0.5)'),
+            yaxis='y2',
+            showlegend=False
+        ))
         fig.update_layout(
-            yaxis2 = dict(
-            title = 'moyenne – médiane',
-            overlaying = 'y',
-            side = 'right',
-            showticklabels = False
+            yaxis2=dict(
+                title='moyenne – médiane',
+                overlaying='y',
+                side='right',
+                showticklabels=True
             )
         )
-    # annotation sans légende
+        # annotation sans légende
         fig.add_annotation(
-           x = 0, y = 1.04, xref = 'paper', yref = 'paper',
-           text = 'moyenne – médiane',
-           showarrow = False,
-           font = dict(color='lightgrey', size=12)
+            x=0, y=1.08, xref='paper', yref='paper',
+            text='moyenne – médiane',
+            showarrow=False,
+            font=dict(color='lightgrey', size=12)
         )
     # Deux annotations séparées en haut (pour jour moyen uniquement)
     if "moyen" in label.lower():
@@ -696,26 +696,38 @@ def create_fig_value_step(
 
 def create_fig_values_timeseries(daily_stats, colors):
     fig = go.Figure()
+    ds = daily_stats.sort_values('day_start')
+
     # Remplissage gris entre min et max quotidiens
     fig.add_trace(go.Scatter(
-        x=list(daily_stats['day_start']) + list(daily_stats['day_start'][::-1]),
-        y=list(daily_stats['max']) + list(daily_stats['min'][::-1]),
-        fill='toself',
-        fillcolor='rgba(128,128,128,0.2)',
+        x=ds['day_start'],
+        y=ds['max'],
+        mode='lines',
         line=dict(color='rgba(0,0,0,0)'),
-        hoverinfo='skip',
-        showlegend=False
+        fill='tonexty',
+        fillcolor='rgba(128,128,128,0.2)',
+        showlegend=False,
+        hoverinfo='skip'
     ))
-    # Courbes pointillées pour min, mean, median, max au fil des jours
+    fig.add_trace(go.Scatter(
+        x=ds['day_start'],
+        y=ds['min'],
+        mode='lines',
+        line=dict(color='rgba(0,0,0,0)'),
+        showlegend=False,
+        hoverinfo='skip'
+    ))
+
+    # Courbes pour min, mean, median, max au fil des jours
     for stat in ['min', 'mean', 'median', 'max']:
         fig.add_trace(go.Scatter(
-            x=daily_stats['day_start'],
-            y=daily_stats[stat],
-            mode='lines', #'lines+markers',
-            marker=dict(color=colors[stat]),
+            x=ds['day_start'],
+            y=ds[stat],
+            mode='lines',
             line=dict(color=colors[stat]),
             name=stat.capitalize()
         ))
+
     fig.update_layout(
         title="Évolution journalière des valeurs extrêmes (inch)",
         xaxis_title="Date",

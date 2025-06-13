@@ -3,6 +3,7 @@
 
 import numpy as np
 import pandas as pd
+from statsmodels.nonparametric.smoothers_lowess import lowess
 
 
 def calculate_central_times(df, daily_stats=None):
@@ -24,93 +25,148 @@ def calculate_central_times(df, daily_stats=None):
     return np.array(min_times, dtype=float), np.array(max_times, dtype=float)
 
 
-def compute_daily_extrema_timestamps(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcule les heures et valeurs extrêmes de chaque journée.
-
-    Les segments monotones en début et fin de journée sont écartés afin de ne
-    conserver que le cœur de la variation journalière. Les signaux de
-    variations sont obtenus via ``np.sign`` sur les différences successives ;
-    les plateaux (valeur nulle) sont propagés pour être assimilés aux tendances
-    voisines. Une fois ce cœur isolé, les éventuels plateaux aux nouvelles
-    extrémités (valeur égale, à ``tol`` près, à la première ou dernière mesure
-    retenue) sont également retirés.
-
-    Returns
-    -------
-    pd.DataFrame
-        Colonnes ``['day', 'time_max', 'val_max', 'time_min', 'val_min']`` pour
-        chaque jour disposant encore de données intérieures.
+def compute_daily_extrema_timestamps(
+        df: pd.DataFrame,
+        neighbor_layers: int = 4
+) -> pd.DataFrame:
     """
-    import pandas as pd
-    import numpy as np
+    Calcule pour chaque jour (sauf premier et dernier) les extrema (min et max)
+    en utilisant LOWESS pour lisser et un raffinage local autour de chaque extrême.
 
+    Paramètres
+    ----------
+    df : pd.DataFrame
+        Colonnes ['timestamp','inch'].
+    neighbor_layers : int, optionnel (défaut=4)
+        Utilisé comme `margin` pour exclure les points de bord, équivalent au
+        nombre de points à ignorer au début et à la fin de chaque journée.
+
+    Retour
+    ------
+    pd.DataFrame
+        Colonnes ['day','time_max','val_max','time_min','val_min'].
+    """
+    # -- Paramètres internes pour LOWESS et raffinage --
+    frac = 0.05
+    tol_cand = 1e-3
+    tol_plateau = 1e-6
+    margin = neighbor_layers
+    window_min = 20
+
+    def refine_window_extremum(res, vals, times):
+        """
+        Raffine les extrêmes initiaux en cherchant, dans une fenêtre de ±window_min
+        minutes, un candidat plus extrême (tol_cand) sur un plateau (tol_plateau),
+        ou en recentrant sur le run global.
+        """
+        def center_of_run(s, e):
+            t0, t1 = times.iloc[s], times.iloc[e]
+            return t0 + (t1 - t0) / 2
+
+        def find_runs(idxs):
+            runs = []
+            if not idxs:
+                return runs
+            start = prev = idxs[0]
+            for i in idxs[1:]:
+                if i == prev + 1:
+                    prev = i
+                else:
+                    runs.append((start, prev))
+                    start = prev = i
+            runs.append((start, prev))
+            return runs
+
+        for key_t, key_v, is_max in [("t_max","v_max",True), ("t_min","v_min",False)]:
+            diffs = (times - res[key_t]).abs().values
+            raw_i = int(np.argmin(diffs))
+            v0 = res[key_v]
+
+            t_center = res[key_t]
+            lower = t_center - pd.Timedelta(minutes=window_min)
+            upper = t_center + pd.Timedelta(minutes=window_min)
+            mask = (times >= lower) & (times <= upper)
+            win_idxs = np.nonzero(mask)[0]
+
+            v_cand = None
+            if win_idxs.size:
+                seg = vals[win_idxs]
+                extremum = seg.max() if is_max else seg.min()
+                cond = (is_max and extremum > v0 + tol_cand) or (not is_max and extremum < v0 - tol_cand)
+                if cond:
+                    v_cand = extremum
+
+            if v_cand is not None:
+                cand_mask = mask & np.isclose(vals, v_cand, atol=tol_plateau)
+                idxs_ext = np.nonzero(cand_mask)[0].tolist()
+                runs = find_runs(idxs_ext)
+                run = next((r for r in runs if r[0] <= raw_i <= r[1]), None) \
+                      or (max(runs, key=lambda r: r[1]-r[0]) if runs else None)
+                if run:
+                    s, e = run
+                    res[key_v] = v_cand
+                    res[key_t] = center_of_run(s, e)
+            else:
+                plateaus = np.nonzero(np.isclose(vals, v0, atol=tol_plateau))[0].tolist()
+                runs0 = find_runs(plateaus)
+                run = next((r for r in runs0 if r[0] <= raw_i <= r[1]), None) \
+                      or (max(runs0, key=lambda r: r[1]-r[0]) if runs0 else None)
+                if run:
+                    s, e = run
+                    res[key_v] = v0
+                    res[key_t] = center_of_run(s, e)
+        return res
+
+    def method_lowess(vals, times):
+        trend = lowess(vals, np.arange(len(vals)), frac=frac, return_sorted=False)
+        d = np.diff(trend)
+        idx_max = [i+1 for i in range(len(d)-1) if d[i]>0 and d[i+1]<0]
+        idx_min = [i+1 for i in range(len(d)-1) if d[i]<0 and d[i+1]>0]
+        interior = range(margin, len(vals)-margin)
+        peaks   = [i for i in idx_max if i in interior]
+        valleys = [i for i in idx_min if i in interior]
+        if not peaks or not valleys:
+            return None
+        max_i = max(peaks, key=lambda i: vals[i])
+        min_i = min(valleys, key=lambda i: vals[i])
+        res = {'t_max': times.iloc[max_i], 'v_max': vals[max_i],
+               't_min': times.iloc[min_i], 'v_min': vals[min_i]}
+        return refine_window_extremum(res, vals, times)
+
+    # Préparation
     df2 = df.copy()
-    df2["timestamp"] = pd.to_datetime(df2["timestamp"])
-    df2 = df2.sort_values("timestamp")
-    df2["day"] = df2["timestamp"].dt.date
+    df2['timestamp'] = pd.to_datetime(df2['timestamp'])
+    df2 = df2.sort_values('timestamp')
+    df2['day'] = df2['timestamp'].dt.date
 
-    tol = 1e-4
+    days = sorted(df2['day'].unique())
+    if len(days) <= 2:
+        return pd.DataFrame(columns=['day','time_max','val_max','time_min','val_min'])
+
+    first_day, last_day = days[0], days[-1]
     records = []
 
-    for day, grp in df2.groupby("day"):
-        if len(grp) < 3:
+    for day, grp in df2.groupby('day'):
+        if day in (first_day, last_day):
             continue
-
-        signs = np.sign(np.diff(grp["inch"].to_numpy()))
-
-        if np.all(signs == 0):
+        sub = grp.sort_values('timestamp').reset_index(drop=True)
+        if len(sub) < margin*2 + 3:
             continue
-
-        # Propage le dernier signe non nul afin de considérer les plateaux comme
-        # faisant partie de la tendance précédente/suivante
-        filled = signs.copy()
-        for i in range(1, len(filled)):
-            if filled[i] == 0:
-                filled[i] = filled[i - 1]
-        for i in range(len(filled) - 2, -1, -1):
-            if filled[i] == 0:
-                filled[i] = filled[i + 1]
-
-        start_idx = 1
-        switch_down = np.where((filled[:-1] > 0) & (filled[1:] < 0))[0]
-        if switch_down.size:
-            start_idx = switch_down[0] + 1
-
-        end_idx = len(grp) - 2
-        switch_up = np.where((filled[:-1] < 0) & (filled[1:] > 0))[0]
-        if switch_up.size:
-            end_idx = switch_up[-1] + 1
-
-        if start_idx >= end_idx:
+        vals = sub['inch'].to_numpy()
+        times = sub['timestamp']
+        out = method_lowess(vals, times)
+        if out is None:
             continue
-
-        interior = grp.iloc[start_idx : end_idx + 1].copy()
-
-        # Retire les éventuels plateaux de bordure (même valeur qu'en 1ère ou
-        # dernière mesure conservée)
-        first_val = interior["inch"].iloc[0]
-        last_val = interior["inch"].iloc[-1]
-        interior = interior[~np.isclose(interior["inch"], first_val, atol=tol)]
-        interior = interior[~np.isclose(interior["inch"], last_val, atol=tol)]
-        if interior.empty:
-            continue
-
-        # Max et min absolus sur les données restantes (ordre indifférent)
-        val_max = interior["inch"].max()
-        time_max = interior.loc[interior["inch"].idxmax(), "timestamp"]
-
-        val_min = interior["inch"].min()
-        time_min = interior.loc[interior["inch"].idxmin(), "timestamp"]
-
         records.append({
-            "day":      day,
-            "time_max": time_max,
-            "val_max":  val_max,
-            "time_min": time_min,
-            "val_min":  val_min
+            'day': day,
+            'time_max': out['t_max'],
+            'val_max': out['v_max'],
+            'time_min': out['t_min'],
+            'val_min': out['v_min']
         })
 
     return pd.DataFrame(records)
+
 
 
 def get_extreme_half_hours(df_day_half_mean, df_day_half_median):

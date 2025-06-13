@@ -50,7 +50,7 @@ warnings.filterwarnings("ignore")
 start_day_str = "2025-03-15"
 end_day_str = datetime.now().strftime('%Y-%m-%d')
 
-local_path = r"C:\Users\johan\PycharmProjects\Fissure-master\data\Fissures\Fissure route\data_route\measurements.csv"
+local_path = r"C:\Users\johan\PycharmProjects\Fissure\data\Fissures\Fissure route\data_route\measurements.csv"
 remote_path = "/home/johan/measurements.csv"
 hostname = "raspberrypi"
 port = 22
@@ -224,7 +224,7 @@ nbinsy_values = 25
 fig_values = create_fig_values(daily_extrema_df, nbinsy_values, colors)
 
 # Distributions des heures extrêmes (MIN/MAX) avec KDE et clusters
-nbinsx_hours = 24
+nbinsx_hours = 24*2
 fig_hours = create_fig_hours(min_times, max_times, nbinsx_hours)
 
 # Série temporelle des valeurs quotidiennes (min, max, moyenne, médiane)

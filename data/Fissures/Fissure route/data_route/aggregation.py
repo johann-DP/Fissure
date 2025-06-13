@@ -50,6 +50,8 @@ def calculate_daily_stats(df: pd.DataFrame):
             daily.at[idx, 'min'] = ext.at[d, 'val_min']
             daily.at[idx, 'max'] = ext.at[d, 'val_max']
         # sinon laisser NaN
+        else:
+            print("\ncalculate_daily_stats: day not in index\n", d)
 
     # 5) diff_mm
     daily['diff_mm'] = (daily['max'] - daily['min']) * 25.4
